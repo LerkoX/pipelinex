@@ -40,6 +40,19 @@ func (c *DGAEvaluationContext) All() map[string]any {
 	if c.pipeline != nil {
 		result["pipelineId"] = c.pipeline.Id()
 		result["pipelineStatus"] = c.pipeline.Status()
+
+		// 将 Param 添加到上下文中，使其可以直接访问
+		if pipelineImpl, ok := c.pipeline.(*PipelineImpl); ok {
+			if len(pipelineImpl.param) > 0 {
+				for k, v := range pipelineImpl.param {
+					result[k] = v
+				}
+				// 同时提供 Param.xxx 的访问方式
+				result["Param"] = pipelineImpl.param
+			}
+		}
+
+		// 添加 metadata
 		if metadata := c.pipeline.Metadata(); metadata != nil {
 			for k, v := range metadata {
 				result[k] = v

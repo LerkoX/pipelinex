@@ -283,6 +283,7 @@ type PipelineImpl struct {
 	mu               sync.RWMutex
 	executorProvider ExecutorProvider
 	executors        map[string]Executor // 缓存已创建的executor
+	param            map[string]interface{} // 存储渲染后的Param值
 }
 
 func NewPipeline(ctx context.Context) Pipeline {
@@ -290,6 +291,13 @@ func NewPipeline(ctx context.Context) Pipeline {
 		id:        uuid.NewString(),
 		executors: make(map[string]Executor),
 	}
+}
+
+// SetParam 设置 param 值
+func (p *PipelineImpl) SetParam(param map[string]interface{}) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.param = param
 }
 
 // Id 返回流水线的ID

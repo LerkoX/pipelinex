@@ -270,23 +270,78 @@ pipeline, err := runtime.RunSync(ctx, "id", config, listener)
 
 ## Architecture
 
+```mermaid
+graph TB
+    subgraph "Runtime Layer"
+        RT[Runtime]
+        RTI[Runtime Impl]
+    end
+
+    subgraph "Pipeline Core"
+        PL[Pipeline]
+        PLI[Pipeline Impl]
+        NODE[Node]
+        EDGE[Edge]
+        EVAL[Eval Context]
+    end
+
+    subgraph "Configuration"
+        CFG[Config]
+        TPL[Template Engine]
+    end
+
+    subgraph "Metadata"
+        MD[Metadata Store]
+        EXT[Extractor]
+    end
+
+    subgraph "Executor Core"
+        EP[Executor Provider]
+        EI[Executor Interfaces]
+        ADP[Adapter Pattern]
+        BRG[Bridge Pattern]
+    end
+
+    subgraph "Executor Implementations"
+        K8S[K8s Executor]
+        DOCKER[Docker Executor]
+        LOCAL[Local Executor]
+        SSH[SSH Executor]
+    end
+
+    subgraph "Utilities"
+        LOG[Logger]
+        EVT[Event System]
+    end
+
+    RT --> RTI
+    RTI --> PL
+    PL --> PLI
+    PLI --> NODE
+    PLI --> EDGE
+    PLI --> EVAL
+    PLI --> EP
+    EP --> EI
+    EI --> ADP
+    EI --> BRG
+    ADP --> K8S
+    ADP --> DOCKER
+    ADP --> LOCAL
+    ADP --> SSH
+    BRG --> K8S
+    BRG --> DOCKER
+    BRG --> LOCAL
+    BRG --> SSH
+    RTI --> CFG
+    RTI --> MD
+    PLI --> MD
+    CFG --> TPL
+    NODE --> EXT
+    PLI --> EVT
+    RTI --> LOG
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│   Runtime   │────▶│   Pipeline   │────▶│     DAG     │
-└─────────────┘     └──────────────┘     └─────────────┘
-                              │                    │
-                              ▼                    ▼
-                       ┌──────────────┐     ┌─────────────┐
-                       │   Executor   │     │    Node     │
-                       │   Provider   │     └─────────────┘
-                       └──────────────┘            │
-                              │                    │
-           ┌──────────────────┼────────────────────┤
-           ▼                  ▼                    ▼
-    ┌──────────┐      ┌──────────┐         ┌──────────┐
-    │  Local   │      │  Docker  │         │   K8s    │
-    └──────────┘      └──────────┘         └──────────┘
-```
+
+[中文文档](./README_ZH.md)
 
 ## API Reference
 

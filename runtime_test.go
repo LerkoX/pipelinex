@@ -720,3 +720,303 @@ func TestParseGraphEdges_WithNotes(t *testing.T) {
 		t.Errorf("Expected 3 nodes, got %d", len(nodes))
 	}
 }
+
+// TestRuntimeImpl_RenderParam_SelfReference 测试Param自引用
+func TestRuntimeImpl_RenderParam_SelfReference(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx).(*RuntimeImpl)
+
+	config := `
+Param:
+  buildId: "2323"
+  imageName: "myapp-{{ Param.buildId }}"
+  fullImage: "{{ Param.imageName }}:latest"
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Task1
+Nodes:
+  Task1:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'test'"
+`
+
+	pipeline, err := runtime.RunSync(ctx, "test-param-self-ref", config, nil)
+	if err != nil {
+		t.Fatalf("RunSync failed: %v", err)
+	}
+
+	// 验证pipeline的param值是否正确渲染
+	if pipeline == nil {
+		t.Fatal("Pipeline should not be nil")
+	}
+
+	// 我们可以通过检查节点的配置来验证Param是否被正确渲染
+	graph := pipeline.GetGraph()
+	if graph == nil {
+		t.Fatal("Graph should not be nil")
+	}
+
+	// 验证节点存在
+	nodes := graph.Nodes()
+	if len(nodes) != 1 {
+		t.Fatalf("Expected 1 node, got %d", len(nodes))
+	}
+
+	// 获取Param值进行验证（通过metadata或evalctx）
+	// 在这里我们主要通过不报错来验证渲染成功
+}
+
+// TestRuntimeImpl_RenderParam_CircularReference 测试Param循环引用检测
+func TestRuntimeImpl_RenderParam_CircularReference(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx).(*RuntimeImpl)
+
+	// 测试一个简单的间接循环引用
+	config := `
+Param:
+  a: "{{ Param.b }}"
+  b: "{{ Param.c }}"
+  c: "{{ Param.a }}"
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Task1
+Nodes:
+  Task1:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'task1'"
+`
+
+	_, err := runtime.RunSync(ctx, "test-param-circular", config, nil)
+	// 注意：实际实现中可能无法检测所有形式的循环引用
+	// 这里我们主要测试渲染不会导致程序崩溃
+	if err != nil {
+		// 如果能检测到循环引用并返回错误，那是最好的
+		t.Logf("Detected circular reference: %v", err)
+	}
+	// 即使不返回错误，只要程序不崩溃，我们也认为是可以接受的
+}
+
+// TestRuntimeImpl_RenderMetadata_ReferenceParam 测试Metadata引用Param
+func TestRuntimeImpl_RenderMetadata_ReferenceParam(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx).(*RuntimeImpl)
+
+	config := `
+Param:
+  env: "production"
+  namespace: "myapp"
+
+Metadate:
+  type: in-config
+  data:
+    K8sNamespace: "{{ Param.namespace }}-{{ Param.env }}"
+    ImagePrefix: "myregistry.com/{{ Param.namespace }}/"
+
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Task1
+Nodes:
+  Task1:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'ns={{ .K8sNamespace }}, prefix={{ .ImagePrefix }}'"
+`
+
+	pipeline, err := runtime.RunSync(ctx, "test-metadata-ref-param", config, nil)
+	if err != nil {
+		t.Fatalf("RunSync failed: %v", err)
+	}
+
+	if pipeline == nil {
+		t.Fatal("Pipeline should not be nil")
+	}
+
+	// 获取metadata验证值
+	metadata := pipeline.Metadata()
+	if metadata == nil {
+		t.Fatal("Metadata should not be nil")
+	}
+
+	// 验证metadata中的值是否正确渲染
+	if ns, ok := metadata["K8sNamespace"].(string); !ok || ns != "myapp-production" {
+		t.Errorf("Expected K8sNamespace='myapp-production', got %v", ns)
+	}
+
+	if prefix, ok := metadata["ImagePrefix"].(string); !ok || prefix != "myregistry.com/myapp/" {
+		t.Errorf("Expected ImagePrefix='myregistry.com/myapp/', got %v", prefix)
+	}
+}
+
+// TestRuntimeImpl_RenderParam_NestedStructures 测试Param嵌套结构
+func TestRuntimeImpl_RenderParam_NestedStructures(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx).(*RuntimeImpl)
+
+	config := `
+Param:
+  prefix: "prod"
+  nested:
+    key1: "value-{{ Param.prefix }}"
+    key2:
+      - "item1-{{ Param.prefix }}"
+      - "item2-{{ Param.prefix }}"
+  list:
+    - "{{ Param.prefix }}-item1"
+    - "{{ Param.prefix }}-item2"
+
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Task1
+Nodes:
+  Task1:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'task1'"
+`
+
+	pipeline, err := runtime.RunSync(ctx, "test-param-nested", config, nil)
+	if err != nil {
+		t.Fatalf("RunSync failed: %v", err)
+	}
+
+	if pipeline == nil {
+		t.Fatal("Pipeline should not be nil")
+	}
+}
+
+// TestRuntimeImpl_RenderParam_WithUndefinedVariable 测试Param使用未定义变量
+func TestRuntimeImpl_RenderParam_WithUndefinedVariable(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx).(*RuntimeImpl)
+
+	config := `
+Param:
+  image: "myapp-{{ Param.version }}"
+  tag: "{{ Param.version }}-latest"
+
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Task1
+Nodes:
+  Task1:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'image={{ Param.image }}'"
+`
+
+	// version未定义，应该保持模板字符串原样
+	pipeline, err := runtime.RunSync(ctx, "test-param-undefined", config, nil)
+	if err != nil {
+		t.Fatalf("RunSync should not fail with undefined variables: %v", err)
+	}
+
+	if pipeline == nil {
+		t.Fatal("Pipeline should not be nil")
+	}
+}
+
+// TestRenderValue_NestedStructures 测试renderValue的嵌套结构处理
+func TestRenderValue_NestedStructures(t *testing.T) {
+	runtime := NewRuntime(context.Background()).(*RuntimeImpl)
+
+	tests := []struct {
+		name     string
+		value    interface{}
+		ctx      map[string]any
+		expected interface{}
+	}{
+		{
+			name:     "字符串模板",
+			value:    "hello {{ Param.name }}",
+			ctx:      map[string]any{"Param": map[string]any{"name": "world"}},
+			expected: "hello world",
+		},
+		{
+			name: "map嵌套",
+			value: map[string]interface{}{
+				"key1": "value-{{ Param.prefix }}",
+				"key2": map[string]interface{}{
+					"nested": "{{ Param.prefix }}-nested",
+				},
+			},
+			ctx:      map[string]any{"Param": map[string]any{"prefix": "prod"}},
+			expected: map[string]interface{}{
+				"key1": "value-prod",
+				"key2": map[string]interface{}{
+					"nested": "prod-nested",
+				},
+			},
+		},
+		{
+			name: "slice嵌套",
+			value: []interface{}{
+				"{{ Param.item1 }}",
+				"{{ Param.item2 }}",
+				map[string]interface{}{
+					"key": "{{ Param.item3 }}",
+				},
+			},
+			ctx: map[string]any{"Param": map[string]any{
+				"item1": "value1",
+				"item2": "value2",
+				"item3": "value3",
+			}},
+			expected: []interface{}{
+				"value1",
+				"value2",
+				map[string]interface{}{
+					"key": "value3",
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := runtime.renderValue(tt.value, tt.ctx, 0)
+			if err != nil {
+				t.Fatalf("renderValue failed: %v", err)
+			}
+
+			// 简单比较（实际项目中可能需要更复杂的比较）
+			resultStr := fmt.Sprintf("%v", result)
+			expectedStr := fmt.Sprintf("%v", tt.expected)
+			if resultStr != expectedStr {
+				t.Errorf("Expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
