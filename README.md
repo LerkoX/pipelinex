@@ -270,23 +270,18 @@ pipeline, err := runtime.RunSync(ctx, "id", config, listener)
 
 ## Architecture
 
+```mermaid
+graph TD
+    Runtime --> Pipeline
+    Pipeline --> DAG
+    Pipeline --> ExecutorProvider
+    DAG --> Node
+    ExecutorProvider --> Local
+    ExecutorProvider --> Docker
+    ExecutorProvider --> K8s
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│   Runtime   │────▶│   Pipeline   │────▶│     DAG     │
-└─────────────┘     └──────────────┘     └─────────────┘
-                              │                    │
-                              ▼                    ▼
-                       ┌──────────────┐     ┌─────────────┐
-                       │   Executor   │     │    Node     │
-                       │   Provider   │     └─────────────┘
-                       └──────────────┘            │
-                              │                    │
-           ┌──────────────────┼────────────────────┤
-           ▼                  ▼                    ▼
-    ┌──────────┐      ┌──────────┐         ┌──────────┐
-    │  Local   │      │  Docker  │         │   K8s    │
-    └──────────┘      └──────────┘         └──────────┘
-```
+
+[中文文档](./README_ZH.md)
 
 ## API Reference
 

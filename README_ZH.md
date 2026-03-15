@@ -222,22 +222,15 @@ pipeline, err := runtime.RunSync(ctx, "id", config, listener)
 
 ## 架构图
 
-```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│   Runtime   │────▶│   Pipeline   │────▶│     DAG     │
-└─────────────┘     └──────────────┘     └─────────────┘
-                              │                    │
-                              ▼                    ▼
-                       ┌──────────────┐     ┌─────────────┐
-                       │   Executor   │     │    Node     │
-                       │   Provider   │     └─────────────┘
-                       └──────────────┘            │
-                              │                    │
-           ┌──────────────────┼────────────────────┤
-           ▼                  ▼                    ▼
-    ┌──────────┐      ┌──────────┐         ┌──────────┐
-    │  Local   │      │  Docker  │         │   K8s    │
-    └──────────┘      └──────────┘         └──────────┘
+```mermaid
+graph TD
+    Runtime --> Pipeline
+    Pipeline --> DAG
+    Pipeline --> ExecutorProvider
+    DAG --> Node
+    ExecutorProvider --> Local
+    ExecutorProvider --> Docker
+    ExecutorProvider --> K8s
 ```
 
 ## API 参考
