@@ -1,6 +1,90 @@
 # 更新日志
 
-## [Unreleased] - 2026-03-14
+## [Unreleased] - 2026-03-15
+
+本版本新增了参数模板渲染功能，支持在 Metadata 中引用 Param，并大幅更新了文档。
+
+### 新增功能
+
+#### 1. 参数模板渲染（Param Template Rendering）
+- 支持在 `Param` 中使用 pongo2 模板语法进行动态渲染
+- 支持自引用：一个 Param 可以引用另一个 Param 的值
+- 支持嵌套结构：列表、字典等复杂数据结构的模板渲染
+- 支持访问嵌套字段：`Param.config.replicas`
+- 访问方式：使用 `{{ Param.xxx }}` 语法
+- 渲染时机：配置解析阶段，在 pipeline 启动前完成
+- 错误处理：渲染失败会导致 pipeline 启动失败
+- 新增 `config.template-render.example.yaml` - 模板渲染完整示例
+- 删除 `example_test_config.yaml` - 替换为更完善的示例
+
+#### 2. Metadata 支持渲染 Param
+- Metadata 的 data 字段现在可以引用 Param 中定义的变量
+- 支持组合多个 Param 创建新的元数据值
+- 渲染规则：
+  - Metadata 只能引用 Param，不能自引用（避免循环依赖）
+  - 渲染时机：配置解析阶段，在 pipeline 启动前完成
+  - 错误处理：渲染失败会导致 pipeline 启动失败
+- 新增 `pipeline_impl.go:SetParam()` - 设置渲染后的 Param 值
+- 更新 `config.example.yaml` - 添加 Metadata 渲染示例
+
+### 文档更新
+
+#### 1. README 大幅更新
+- **README.md** - 添加参数模板渲染功能说明和完整示例
+- **README_ZH.md** - 同步更新中文文档
+- 添加模板渲染的使用场景和最佳实践
+- 更新架构图，更清晰地展示组件关系
+
+#### 2. 配置文档完善
+- **doc/config.md** - 大幅更新（+66行）
+- 添加完整的 Param 模板渲染章节
+- 添加 Metadata 模板渲染说明
+- 提供详细的语法示例和使用指南
+
+#### 3. 架构图修改
+- 优化架构图布局，更清晰展示各组件关系
+- 更新英文和中文文档中的架构图
+
+### 测试覆盖
+
+- **runtime_test.go** - 新增 300 行测试代码
+- 全面测试模板渲染功能
+- 测试 Param 自引用和嵌套结构
+- 测试 Metadata 引用 Param 的各种场景
+- 测试错误处理和边界情况
+
+### 改进与优化
+
+#### 1. 配置增强
+- 优化配置验证逻辑
+- 完善模板渲染的错误提示
+- 增强配置文件的灵活性
+
+#### 2. 代码质量
+- **runtime_impl.go** - 完善运行时实现（+184行）
+- **eval_context.go** - 添加模板渲染支持
+- 优化错误处理机制
+- 提升代码可读性和可维护性
+
+### 文件变更统计
+
+- 新增文件：1 个（config.template-render.example.yaml）
+- 修改文件：9 个（pipeline_impl.go、runtime_impl.go、runtime_test.go、eval_context.go、config.example.yaml、doc/config.md、README.md、README_ZH.md、LICENSE）
+- 删除文件：1 个（example_test_config.yaml）
+- 总行数变化：+1,400 / -70
+
+### 完整提交记录
+
+```
+4791f86 feat: 更新README
+af6cfd5 feat: 架构图修改
+ed34fda feat: 添加Metadata中支持渲染Param
+d37753f Update LICENSE
+```
+
+---
+
+## [2026-03-14] - 2026-03-14
 
 本版本引入了输出提取功能，完善了流水线执行逻辑，并更新了文档。
 
