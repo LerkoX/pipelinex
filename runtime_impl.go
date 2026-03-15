@@ -29,6 +29,137 @@ type RuntimeImpl struct {
 	templateEngine TemplateEngine      // 模板引擎
 }
 
+// renderParam 渲染Param中的模板表达式，支持自引用
+// 使用迭代方式处理参数间的相互引用，最大迭代次数防止无限循环
+func (r *RuntimeImpl) renderParam(param map[string]interface{}) (map[string]interface{}, error) {
+	if len(param) == 0 {
+		return param, nil
+	}
+
+	// 创建结果副本，避免修改原始数据
+	result := make(map[string]interface{})
+	for k, v := range param {
+		result[k] = v
+	}
+
+	// 最大迭代次数，防止无限循环
+	maxIterations := 10
+	changed := true
+	iteration := 0
+
+	for changed && iteration < maxIterations {
+		changed = false
+		iteration++
+
+		// 遍历所有参数，尝试渲染
+		for key, value := range result {
+			// 创建上下文，Param的值可以直接访问，也可以通过Param.xxx访问
+			ctx := make(map[string]any)
+			// 将所有Param值直接放入上下文，使其可以直接访问
+			for k, v := range result {
+				ctx[k] = v
+			}
+			// 同时保留Param.xxx的访问方式
+			ctx["Param"] = result
+
+			renderedValue, err := r.renderValue(value, ctx, 0)
+			if err != nil {
+				return nil, fmt.Errorf("failed to render param '%s': %w", key, err)
+			}
+
+			// 如果值发生变化，标记为需要继续迭代
+			if !r.deepEqual(value, renderedValue) {
+				result[key] = renderedValue
+				changed = true
+			}
+		}
+	}
+
+	// 如果达到最大迭代次数仍未稳定，说明可能存在循环引用
+	if iteration >= maxIterations && changed {
+		return result, fmt.Errorf("param rendering reached maximum iterations, possible circular reference detected")
+	}
+
+	return result, nil
+}
+
+// renderValue 递归渲染值中的模板表达式
+// depth 参数控制递归深度，防止无限递归
+func (r *RuntimeImpl) renderValue(value interface{}, ctx map[string]any, depth int) (interface{}, error) {
+	// 限制递归深度
+	if depth > 10 {
+		return value, nil
+	}
+
+	switch v := value.(type) {
+	case string:
+		// 字符串类型，尝试渲染模板
+		rendered, err := r.templateEngine.EvaluateString(v, ctx)
+		if err != nil {
+			// 渲染失败，返回原始值
+			return v, nil
+		}
+		return rendered, nil
+
+	case map[string]interface{}:
+		// map类型，递归渲染每个值
+		result := make(map[string]interface{})
+		for k, val := range v {
+			renderedVal, err := r.renderValue(val, ctx, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			result[k] = renderedVal
+		}
+		return result, nil
+
+	case []interface{}:
+		// slice类型，递归渲染每个元素
+		result := make([]interface{}, len(v))
+		for i, val := range v {
+			renderedVal, err := r.renderValue(val, ctx, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			result[i] = renderedVal
+		}
+		return result, nil
+
+	default:
+		// 其他类型（数字、布尔值等），直接返回
+		return value, nil
+	}
+}
+
+// deepEqual 深度比较两个值是否相等
+func (r *RuntimeImpl) deepEqual(a, b interface{}) bool {
+	return fmt.Sprintf("%v", a) == fmt.Sprintf("%v", b)
+}
+
+// renderMetadata 渲染Metadata中的模板表达式，可以引用Param
+func (r *RuntimeImpl) renderMetadata(metadataData map[string]interface{}, param map[string]interface{}) (map[string]interface{}, error) {
+	if len(metadataData) == 0 {
+		return metadataData, nil
+	}
+
+	// 构建上下文，Param可以通过{{ Param.xxx }}访问
+	ctx := map[string]any{
+		"Param": param,
+	}
+
+	// 渲染metadata数据
+	result := make(map[string]interface{})
+	for key, value := range metadataData {
+		renderedValue, err := r.renderValue(value, ctx, 0)
+		if err != nil {
+			return nil, fmt.Errorf("failed to render metadata '%s': %w", key, err)
+		}
+		result[key] = renderedValue
+	}
+
+	return result, nil
+}
+
 // NewRuntime 创建新的Runtime实例
 func NewRuntime(ctx context.Context) Runtime {
 	ctx, cancel := context.WithCancel(ctx)
@@ -89,6 +220,24 @@ func (r *RuntimeImpl) RunAsync(ctx context.Context, id string, config string, li
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
+	// 渲染Param
+	if len(pipelineConfig.Param) > 0 {
+		renderedParam, err := r.renderParam(pipelineConfig.Param)
+		if err != nil {
+			return nil, fmt.Errorf("failed to render param: %w", err)
+		}
+		pipelineConfig.Param = renderedParam
+	}
+
+	// 渲染Metadata
+	if pipelineConfig.Metadate.Type != "" && len(pipelineConfig.Metadate.Data) > 0 {
+		renderedMetadata, err := r.renderMetadata(pipelineConfig.Metadate.Data, pipelineConfig.Param)
+		if err != nil {
+			return nil, fmt.Errorf("failed to render metadata: %w", err)
+		}
+		pipelineConfig.Metadate.Data = renderedMetadata
+	}
+
 	// 创建流水线
 	pipeline := NewPipeline(ctx)
 
@@ -100,6 +249,11 @@ func (r *RuntimeImpl) RunAsync(ctx context.Context, id string, config string, li
 	// 构建图结构
 	graph := r.buildGraph(pipelineConfig)
 	pipeline.SetGraph(graph)
+
+	// 设置渲染后的 param 值
+	if len(pipelineConfig.Param) > 0 {
+		pipeline.(*PipelineImpl).SetParam(pipelineConfig.Param)
+	}
 
 	// 设置metadata
 	if err := r.setupMetadata(ctx, pipeline, pipelineConfig); err != nil {
@@ -152,6 +306,24 @@ func (r *RuntimeImpl) RunSync(ctx context.Context, id string, config string, lis
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
+	// 渲染Param
+	if len(pipelineConfig.Param) > 0 {
+		renderedParam, err := r.renderParam(pipelineConfig.Param)
+		if err != nil {
+			return nil, fmt.Errorf("failed to render param: %w", err)
+		}
+		pipelineConfig.Param = renderedParam
+	}
+
+	// 渲染Metadata
+	if pipelineConfig.Metadate.Type != "" && len(pipelineConfig.Metadate.Data) > 0 {
+		renderedMetadata, err := r.renderMetadata(pipelineConfig.Metadate.Data, pipelineConfig.Param)
+		if err != nil {
+			return nil, fmt.Errorf("failed to render metadata: %w", err)
+		}
+		pipelineConfig.Metadate.Data = renderedMetadata
+	}
+
 	// 创建流水线
 	pipeline := NewPipeline(ctx)
 
@@ -163,6 +335,11 @@ func (r *RuntimeImpl) RunSync(ctx context.Context, id string, config string, lis
 	// 构建图结构
 	graph := r.buildGraph(pipelineConfig)
 	pipeline.SetGraph(graph)
+
+	// 设置渲染后的 param 值
+	if len(pipelineConfig.Param) > 0 {
+		pipeline.(*PipelineImpl).SetParam(pipelineConfig.Param)
+	}
 
 	// 设置metadata
 	if err := r.setupMetadata(ctx, pipeline, pipelineConfig); err != nil {
@@ -296,6 +473,13 @@ func (r *RuntimeImpl) buildGraph(config *PipelineConfig) Graph {
 	}
 
 	return graph
+}
+
+// SetPipelineParam 设置 pipeline 的 param 值（内部使用）
+func SetPipelineParam(pipeline Pipeline, param map[string]interface{}) {
+	if pipelineImpl, ok := pipeline.(*PipelineImpl); ok {
+		pipelineImpl.SetParam(param)
+	}
 }
 
 // parseGraphEdges 解析图边关系

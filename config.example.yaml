@@ -5,6 +5,8 @@ Metadate:
   type: in-config
   description: "用于存储构建过程中的元数据，如构建ID、版本号、测试覆盖率等，供后续节点使用"
   data:
+    # 支持模板渲染，可以引用 Param 中定义的变量
+    # 例如：namespace: "{{ Param.appName }}-{{ Param.env }}"
     key1: value1
     key2: value2
 
@@ -27,9 +29,11 @@ AI:
 
 Param:
   # 构建ID，用于镜像标签和版本追踪
+  # 支持模板渲染和自引用，例如：buildId: "build-{{ Param.timestamp }}"
   buildId: "2323"
 
   # K8s 命名空间，目标部署环境
+  # 可以在其他 Param 中引用：fullName: "myapp-{{ Param.namespace }}"
   namespace: "production"
 
   # 镜像仓库地址，用于推送和拉取镜像

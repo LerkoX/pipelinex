@@ -12,7 +12,31 @@
 | `Name` | string | 流水线唯一标识，用于日志、监控、管理 |
 | `Metadate.description` | string | 可选，描述 metadata 的用途和业务含义 |
 | `Metadate.type` | string | Metadata 存储类型：in-config、redis、http |
-| `Metadate.data` | map | 初始元数据键值对 |
+| `Metadate.data` | map | 初始元数据键值对，支持引用 Param 的模板渲染 |
+
+### 1.1 Metadata 模板渲染
+
+Metadata 的 data 字段支持模板渲染，可以引用 Param 中定义的变量：
+
+```yaml
+Param:
+  env: "production"
+  namespace: "myapp"
+  registry: "myregistry.com"
+
+Metadate:
+  type: in-config
+  data:
+    K8sNamespace: "{{ Param.namespace }}-{{ Param.env }}"      # 渲染为: myapp-production
+    ImagePrefix: "{{ Param.registry }}/{{ Param.namespace }}/"  # 渲染为: myregistry.com/myapp/
+    FullImage: "{{ Param.registry }}/myapp:{{ Param.env }}"     # 渲染为: myregistry.com/myapp:production
+```
+
+渲染规则：
+- Metadata 只能引用 Param，不能自引用（避免循环依赖）
+- 访问方式：使用 `{{ Param.xxx }}` 语法
+- 渲染时机：配置解析阶段，在 pipeline 启动前完成
+- 错误处理：渲染失败会导致 pipeline 启动失败
 
 ---
 
@@ -34,7 +58,45 @@
 
 | 字段 | 类型 | 功能 |
 |------|------|------|
-| `Param` | map | 全局变量池，支持在配置中通过 `${Param.xxx}` 引用 |
+| `Param` | map | 全局变量池，支持在配置中通过 `{{ Param.xxx }}` 引用，支持模板渲染和自引用 |
+
+### 3.1 模板渲染支持
+
+Param 字段支持使用 pongo2 模板语法进行动态渲染，支持以下特性：
+
+**1. 基本变量引用：**
+```yaml
+Param:
+  env: "production"
+  namespace: "myapp-{{ Param.env }}"  # 渲染为: myapp-production
+```
+
+**2. 自引用（一个 Param 引用另一个 Param）：**
+```yaml
+Param:
+  buildId: "2323"
+  imageName: "myapp-{{ Param.buildId }}"          # 渲染为: myapp-2323
+  fullImage: "{{ Param.imageName }}:latest"       # 渲染为: myapp-2323:latest
+```
+
+**3. 嵌套结构：**
+```yaml
+Param:
+  prefix: "prod"
+  config:
+    env: "{{ Param.prefix }}"                     # 渲染为: prod
+    list:
+      - "{{ Param.prefix }}-item1"                 # 渲染为: prod-item1
+      - "{{ Param.prefix }}-item2"                 # 渲染为: prod-item2
+```
+
+### 3.2 未定义变量处理
+
+如果模板中引用了未定义的变量，模板表达式将保持不变：
+```yaml
+Param:
+  image: "myapp-{{ Param.version }}"  # 如果 version 未定义，保持原样
+```
 
 ---
 
