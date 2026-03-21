@@ -493,6 +493,29 @@ func (p *PipelineImpl) executeNode(ctx context.Context, node Node, exec Executor
 	}
 
 	// 1. 初始化节点运行时状态
+	runtimeStatus := p.initializeNodeRuntimeStatus(node, exec)
+	node.SetRuntimeStatus(runtimeStatus)
+
+	// 2. 设置通道和启动 executor
+	commandChan, resultChan := p.setupExecutorChannels(ctx, exec, steps)
+
+	// 3. 发送所有步骤命令
+	go p.sendCommands(ctx, commandChan, steps)
+
+	// 4. 等待并处理所有结果
+	lastErr, _ := p.waitForResults(ctx, node, exec, resultChan, steps)
+
+	// 5. 更新节点最终状态
+	if runtimeStatus = node.GetRuntimeStatus(); runtimeStatus != nil {
+		p.updateNodeFinalStatus(runtimeStatus, lastErr)
+		node.SetRuntimeStatus(runtimeStatus)
+	}
+
+	return lastErr
+}
+
+// initializeNodeRuntimeStatus 初始化节点运行时状态
+func (p *PipelineImpl) initializeNodeRuntimeStatus(node Node, exec Executor) *NodeRuntimeStatus {
 	node.EnsureIds()
 	runtimeStatus := node.GetRuntimeStatus()
 	if runtimeStatus == nil {
@@ -506,7 +529,7 @@ func (p *PipelineImpl) executeNode(ctx context.Context, node Node, exec Executor
 	runtimeStatus.Status = StatusRunning
 	runtimeStatus.StartTime = time.Now().Format(time.RFC3339)
 
-	// 2. 收集 Executor 信息
+	// 收集 Executor 信息
 	if infoProvider, ok := exec.(executor.ExecutorInfoProvider); ok {
 		runtimeStatus.Executor = &ExecutorRuntimeInfo{
 			Type:       infoProvider.GetType(),
@@ -516,113 +539,152 @@ func (p *PipelineImpl) executeNode(ctx context.Context, node Node, exec Executor
 		}
 	}
 
-	// 保存运行时状态（无论 executor 是否实现 ExecutorInfoProvider）
-	node.SetRuntimeStatus(runtimeStatus)
+	return runtimeStatus
+}
 
-	// 创建命令和结果通道
+// setupExecutorChannels 设置通道并启动 executor
+func (p *PipelineImpl) setupExecutorChannels(ctx context.Context, exec Executor, steps []Step) (chan any, chan any) {
 	commandChan := make(chan any, len(steps))
-	resultChan := make(chan any, len(steps)*10) // 预留足够空间用于输出
+	resultChan := make(chan any, len(steps)*10)
 
-	// 启动executor的Transfer goroutine
+	// 启动 executor 的 Transfer goroutine
 	go exec.Transfer(ctx, resultChan, commandChan)
 
-	// 发送所有步骤（转换为命令字符串）
-	go func() {
-		defer close(commandChan)
-		for _, step := range steps {
-			select {
-			case <-ctx.Done():
-				return
-			case commandChan <- step.Run:
-			}
-		}
-	}()
+	return commandChan, resultChan
+}
 
-	// 等待所有结果
+// sendCommands 发送所有步骤命令
+func (p *PipelineImpl) sendCommands(ctx context.Context, commandChan chan any, steps []Step) {
+	defer close(commandChan)
+	for _, step := range steps {
+		select {
+		case <-ctx.Done():
+			return
+		case commandChan <- step.Run:
+		}
+	}
+}
+
+// waitForResults 等待并处理所有结果
+func (p *PipelineImpl) waitForResults(ctx context.Context, node Node, exec Executor, resultChan chan any, steps []Step) (error, string) {
 	var lastErr error
 	resultCount := 0
-	expectedResults := len(steps) // 每个步骤至少返回一个结果
-
-	// 收集所有输出，用于提取
+	expectedResults := len(steps)
 	var allOutput strings.Builder
 
 	for resultCount < expectedResults {
 		select {
 		case <-ctx.Done():
-			// 更新节点状态为取消
-			runtimeStatus.Status = StatusCancelled
-			runtimeStatus.EndTime = time.Now().Format(time.RFC3339)
-			node.SetRuntimeStatus(runtimeStatus)
-			return ctx.Err()
+			p.handleCancellation(nodeContext{ctx: ctx, node: node})
+			return ctx.Err(), allOutput.String()
 		case result, ok := <-resultChan:
 			if !ok {
-				return lastErr
+				return lastErr, allOutput.String()
 			}
 
-			switch v := result.(type) {
-			case error:
-				lastErr = v
-				resultCount++
-			case *StepResult:
-				if v.Error != nil {
-					lastErr = v.Error
-				}
-
-				// 更新步骤运行时状态 - 用 resultCount 匹配步骤索引
-				currentStepIdx := resultCount
-				if currentStepIdx < len(steps) {
-					step := steps[currentStepIdx]
-					stepStatus := StepRuntimeStatus{
-						Id:     step.Id,
-						Name:   step.Name,
-						Status: StatusSuccess,
-					}
-					if !v.StartTime.IsZero() {
-						stepStatus.StartTime = v.StartTime.Format(time.RFC3339)
-					}
-					if !v.FinishTime.IsZero() {
-						stepStatus.EndTime = v.FinishTime.Format(time.RFC3339)
-					}
-					if v.Error != nil {
-						stepStatus.Status = StatusFailed
-						stepStatus.Error = v.Error.Error()
-					}
-					node.SetStepRuntimeStatus(&stepStatus)
-				}
-
-				resultCount++
-
-				// 执行输出提取
-				if err := p.extractOutput(ctx, node, v, allOutput.String()); err != nil {
-					fmt.Printf("Failed to extract output from node %s: %v\n", node.Id(), err)
-				}
-			case []byte:
-				// 实时输出，打印到控制台
-				fmt.Print(string(v))
-				allOutput.Write(v) // 收集输出
+			errCount := p.handleResult(ctx, node, exec, result, resultCount, steps, allOutput.String())
+			if errCount.err != nil {
+				lastErr = errCount.err
 			}
+			resultCount = errCount.count
+			allOutput.WriteString(errCount.output)
 		}
 	}
 
-	// 更新节点最终状态
-	runtimeStatus = node.GetRuntimeStatus()
+	return lastErr, allOutput.String()
+}
+
+// handleCancellation 处理节点取消
+func (p *PipelineImpl) handleCancellation(ctx nodeContext) {
+	runtimeStatus := ctx.node.GetRuntimeStatus()
 	if runtimeStatus != nil {
-		if lastErr != nil {
-			runtimeStatus.Status = StatusFailed
-		} else {
-			runtimeStatus.Status = StatusSuccess
-		}
+		runtimeStatus.Status = StatusCancelled
 		runtimeStatus.EndTime = time.Now().Format(time.RFC3339)
+		ctx.node.SetRuntimeStatus(runtimeStatus)
+	}
+}
 
-		// 更新 Executor 状态为 DESTROYED
-		if runtimeStatus.Executor != nil {
-			runtimeStatus.Executor.Status = executor.ExecutorStatusDestroyed
+// handleResult 处理单个结果
+func (p *PipelineImpl) handleResult(ctx context.Context, node Node, _ Executor, result any, resultCount int, steps []Step, currentOutput string) resultHandler {
+	handler := resultHandler{count: resultCount}
+
+	switch v := result.(type) {
+	case error:
+		handler.err = v
+		handler.count++
+	case *StepResult:
+		if v.Error != nil {
+			handler.err = v.Error
 		}
 
-		node.SetRuntimeStatus(runtimeStatus)
+		// 更新步骤运行时状态
+		if resultCount < len(steps) {
+			p.updateStepRuntimeStatus(node, steps[resultCount], v)
+		}
+
+	handler.count++
+		// 执行输出提取
+		if err := p.extractOutput(ctx, node, v, currentOutput); err != nil {
+			fmt.Printf("Failed to extract output from node %s: %v\n", node.Id(), err)
+		}
+	case []byte:
+		// 实时输出
+	output := string(v)
+		fmt.Print(output)
+		handler.output = output
 	}
 
-	return lastErr
+	return handler
+}
+
+// resultHandler 处理结果的辅助结构
+type resultHandler struct {
+	err    error
+	count  int
+	output string
+}
+
+// nodeContext 节点上下文辅助结构
+type nodeContext struct {
+	ctx  context.Context
+	node Node
+}
+
+// updateStepRuntimeStatus 更新步骤运行时状态
+func (p *PipelineImpl) updateStepRuntimeStatus(node Node, step Step, result *StepResult) {
+	stepStatus := StepRuntimeStatus{
+		Id:     step.Id,
+		Name:   step.Name,
+		Status: StatusSuccess,
+	}
+
+	if !result.StartTime.IsZero() {
+		stepStatus.StartTime = result.StartTime.Format(time.RFC3339)
+	}
+	if !result.FinishTime.IsZero() {
+		stepStatus.EndTime = result.FinishTime.Format(time.RFC3339)
+	}
+	if result.Error != nil {
+		stepStatus.Status = StatusFailed
+		stepStatus.Error = result.Error.Error()
+	}
+
+	node.SetStepRuntimeStatus(&stepStatus)
+}
+
+// updateNodeFinalStatus 更新节点最终状态
+func (p *PipelineImpl) updateNodeFinalStatus(runtimeStatus *NodeRuntimeStatus, err error) {
+	if err != nil {
+		runtimeStatus.Status = StatusFailed
+	} else {
+		runtimeStatus.Status = StatusSuccess
+	}
+	runtimeStatus.EndTime = time.Now().Format(time.RFC3339)
+
+	// 更新 Executor 状态为 DESTROYED
+	if runtimeStatus.Executor != nil {
+		runtimeStatus.Executor.Status = executor.ExecutorStatusDestroyed
+	}
 }
 
 // 这个主要是在运行过程中节点状态或者流水线状态变化，就会触发这个函数
