@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/chenyingqiao/pipelinex/executor"
 	"github.com/google/uuid"
 	"github.com/thoas/go-funk"
 )
@@ -369,6 +371,22 @@ func (p *PipelineImpl) Done() <-chan struct{} {
 	return p.doneChan
 }
 
+// shouldSkipNode 检查节点是否应该跳过执行
+func (p *PipelineImpl) shouldSkipNode(node Node) bool {
+	runtimeStatus := node.GetRuntimeStatus()
+	if runtimeStatus == nil {
+		return false
+	}
+	// SUCCESS、FAILED、CANCELLED 状态的节点都跳过
+	// RUNNING 状态的节点需要恢复（不跳过）
+	switch runtimeStatus.Status {
+	case StatusSuccess, StatusFailed, StatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
 // Run 执行流水线
 func (p *PipelineImpl) Run(ctx context.Context) error {
 	p.mu.Lock()
@@ -419,6 +437,13 @@ func (p *PipelineImpl) Run(ctx context.Context) error {
 		default:
 		}
 
+		// 检查是否应该跳过此节点
+		if p.shouldSkipNode(node) {
+			fmt.Printf("Skipping node %s (status: %s)\n", node.Id(), node.GetRuntimeStatus().Status)
+			p.notifyEvent(PipelineNodeFinish)
+			return nil
+		}
+
 		// 通知节点开始
 		p.notifyEvent(PipelineNodeStart)
 		fmt.Printf("Executing node: %s\n", node.Id())
@@ -460,19 +485,46 @@ func (p *PipelineImpl) Run(ctx context.Context) error {
 }
 
 // executeNode 执行单个节点
-func (p *PipelineImpl) executeNode(ctx context.Context, node Node, executor Executor) error {
+func (p *PipelineImpl) executeNode(ctx context.Context, node Node, exec Executor) error {
 	steps := node.GetSteps()
 	if len(steps) == 0 {
 		fmt.Printf("Node %s has no steps to execute\n", node.Id())
 		return nil
 	}
 
+	// 1. 初始化节点运行时状态
+	node.EnsureIds()
+	runtimeStatus := node.GetRuntimeStatus()
+	if runtimeStatus == nil {
+		runtimeStatus = &NodeRuntimeStatus{
+			Id:    NewUUID(),
+			Steps: []StepRuntimeStatus{},
+		}
+	}
+
+	// 更新节点状态
+	runtimeStatus.Status = StatusRunning
+	runtimeStatus.StartTime = time.Now().Format(time.RFC3339)
+
+	// 2. 收集 Executor 信息
+	if infoProvider, ok := exec.(executor.ExecutorInfoProvider); ok {
+		runtimeStatus.Executor = &ExecutorRuntimeInfo{
+			Type:       infoProvider.GetType(),
+			InstanceId: infoProvider.GetInstanceId(),
+			Status:     executor.ExecutorStatusRunning,
+			Info:       infoProvider.GetRuntimeInfo(),
+		}
+	}
+
+	// 保存运行时状态（无论 executor 是否实现 ExecutorInfoProvider）
+	node.SetRuntimeStatus(runtimeStatus)
+
 	// 创建命令和结果通道
 	commandChan := make(chan any, len(steps))
 	resultChan := make(chan any, len(steps)*10) // 预留足够空间用于输出
 
 	// 启动executor的Transfer goroutine
-	go executor.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan)
 
 	// 发送所有步骤（转换为命令字符串）
 	go func() {
@@ -497,6 +549,10 @@ func (p *PipelineImpl) executeNode(ctx context.Context, node Node, executor Exec
 	for resultCount < expectedResults {
 		select {
 		case <-ctx.Done():
+			// 更新节点状态为取消
+			runtimeStatus.Status = StatusCancelled
+			runtimeStatus.EndTime = time.Now().Format(time.RFC3339)
+			node.SetRuntimeStatus(runtimeStatus)
 			return ctx.Err()
 		case result, ok := <-resultChan:
 			if !ok {
@@ -511,6 +567,29 @@ func (p *PipelineImpl) executeNode(ctx context.Context, node Node, executor Exec
 				if v.Error != nil {
 					lastErr = v.Error
 				}
+
+				// 更新步骤运行时状态 - 用 resultCount 匹配步骤索引
+				currentStepIdx := resultCount
+				if currentStepIdx < len(steps) {
+					step := steps[currentStepIdx]
+					stepStatus := StepRuntimeStatus{
+						Id:     step.Id,
+						Name:   step.Name,
+						Status: StatusSuccess,
+					}
+					if !v.StartTime.IsZero() {
+						stepStatus.StartTime = v.StartTime.Format(time.RFC3339)
+					}
+					if !v.FinishTime.IsZero() {
+						stepStatus.EndTime = v.FinishTime.Format(time.RFC3339)
+					}
+					if v.Error != nil {
+						stepStatus.Status = StatusFailed
+						stepStatus.Error = v.Error.Error()
+					}
+					node.SetStepRuntimeStatus(&stepStatus)
+				}
+
 				resultCount++
 
 				// 执行输出提取
@@ -523,6 +602,24 @@ func (p *PipelineImpl) executeNode(ctx context.Context, node Node, executor Exec
 				allOutput.Write(v) // 收集输出
 			}
 		}
+	}
+
+	// 更新节点最终状态
+	runtimeStatus = node.GetRuntimeStatus()
+	if runtimeStatus != nil {
+		if lastErr != nil {
+			runtimeStatus.Status = StatusFailed
+		} else {
+			runtimeStatus.Status = StatusSuccess
+		}
+		runtimeStatus.EndTime = time.Now().Format(time.RFC3339)
+
+		// 更新 Executor 状态为 DESTROYED
+		if runtimeStatus.Executor != nil {
+			runtimeStatus.Executor.Status = executor.ExecutorStatusDestroyed
+		}
+
+		node.SetRuntimeStatus(runtimeStatus)
 	}
 
 	return lastErr

@@ -673,5 +673,30 @@ func (d *DockerExecutor) GetContainerID() string {
 	return d.containerID
 }
 
-// 确保DockerExecutor实现了Executor接口
+// GetRuntimeInfo 获取运行时信息
+func (d *DockerExecutor) GetRuntimeInfo() map[string]any {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return map[string]any{
+		"containerId": d.containerID,
+		"image":       d.image,
+		"network":     d.network,
+		"workdir":     d.workdir,
+	}
+}
+
+// GetInstanceId 获取实例ID（容器ID）
+func (d *DockerExecutor) GetInstanceId() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.containerID
+}
+
+// GetType 获取executor类型
+func (d *DockerExecutor) GetType() string {
+	return "docker"
+}
+
+// 确保DockerExecutor实现了Executor接口和ExecutorInfoProvider接口
 var _ executor.Executor = (*DockerExecutor)(nil)
+var _ executor.ExecutorInfoProvider = (*DockerExecutor)(nil)

@@ -588,5 +588,30 @@ func (k *KubernetesExecutor) GetNamespace() string {
 	return k.namespace
 }
 
-// 确保KubernetesExecutor实现了Executor接口
+// GetRuntimeInfo 获取运行时信息
+func (k *KubernetesExecutor) GetRuntimeInfo() map[string]any {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return map[string]any{
+		"podName":   k.podName,
+		"namespace": k.namespace,
+		"image":     k.image,
+		"workdir":   k.workdir,
+	}
+}
+
+// GetInstanceId 获取实例ID（Pod名称）
+func (k *KubernetesExecutor) GetInstanceId() string {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	return k.podName
+}
+
+// GetType 获取executor类型
+func (k *KubernetesExecutor) GetType() string {
+	return "k8s"
+}
+
+// 确保KubernetesExecutor实现了Executor接口和ExecutorInfoProvider接口
 var _ executor.Executor = (*KubernetesExecutor)(nil)
+var _ executor.ExecutorInfoProvider = (*KubernetesExecutor)(nil)

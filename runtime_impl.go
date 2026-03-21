@@ -455,14 +455,36 @@ func (r *RuntimeImpl) buildGraph(config *PipelineConfig) Graph {
 	// 创建节点
 	nodeMap := make(map[string]Node)
 	for nodeName, nodeConfig := range config.Nodes {
+		// 初始状态：如果有 runtime 则用 runtime 的 status，否则用 StatusUnknown
+		initialStatus := StatusUnknown
+		if nodeConfig.Runtime != nil && nodeConfig.Runtime.Status != "" {
+			initialStatus = nodeConfig.Runtime.Status
+		}
+
+		// 确保步骤有ID
+		for i := range nodeConfig.Steps {
+			if nodeConfig.Steps[i].Id == "" {
+				nodeConfig.Steps[i].Id = NewUUID()
+			}
+		}
+
 		node := NewDGANodeWithConfig(
 			nodeName,
-			StatusUnknown,
+			initialStatus,
 			nodeConfig.Executor,
 			nodeConfig.Image,
 			nodeConfig.Steps,
 			nodeConfig.Config,
 		)
+
+		// 恢复运行时状态
+		if nodeConfig.Runtime != nil {
+			node.SetRuntimeStatus(nodeConfig.Runtime)
+		}
+
+		// 确保节点有ID
+		node.EnsureIds()
+
 		nodeMap[nodeName] = node
 		graph.AddVertex(node)
 	}

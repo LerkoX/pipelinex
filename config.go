@@ -1,5 +1,35 @@
 package pipelinex
 
+// StepRuntimeStatus 步骤运行时状态
+type StepRuntimeStatus struct {
+	Id        string                 `yaml:"id"`                      // 步骤UUID
+	Name      string                 `yaml:"name"`                    // 步骤名称
+	Status    string                 `yaml:"status"`                  // 状态: PENDING, RUNNING, SUCCESS, FAILED, CANCELLED
+	StartTime string                 `yaml:"startTime,omitempty"`     // 开始时间 (RFC3339)
+	EndTime   string                 `yaml:"endTime,omitempty"`       // 结束时间 (RFC3339)
+	Error     string                 `yaml:"error,omitempty"`         // 错误信息
+	Output    string                 `yaml:"output,omitempty"`        // 步骤输出摘要
+}
+
+// ExecutorRuntimeInfo Executor运行时信息
+type ExecutorRuntimeInfo struct {
+	Type       string                 `yaml:"type"`       // executor 类型: docker, k8s, local, ssh
+	InstanceId string                 `yaml:"instanceId"` // executor 实例ID (如容器ID/Pod名称)
+	Status     string                 `yaml:"status"`     // executor 状态: PREPARED, RUNNING, DESTROYED
+	Info       map[string]interface{} `yaml:"info,omitempty"` // 其他 executor 特定信息
+}
+
+// NodeRuntimeStatus 节点运行时状态
+type NodeRuntimeStatus struct {
+	Id        string                 `yaml:"id"`                      // 节点UUID
+	Status    string                 `yaml:"status"`                  // 节点状态
+	StartTime string                 `yaml:"startTime,omitempty"`     // 开始时间
+	EndTime   string                 `yaml:"endTime,omitempty"`       // 结束时间
+	Steps     []StepRuntimeStatus    `yaml:"steps"`                   // 步骤状态列表
+	Executor  *ExecutorRuntimeInfo   `yaml:"executor,omitempty"`      // Executor 信息
+	Custom    map[string]interface{} `yaml:"custom,omitempty"`        // 自定义扩展字段
+}
+
 // PipelineConfig 流水线配置结构
 type PipelineConfig struct {
 	Version   string                    `yaml:"Version"`
@@ -10,7 +40,6 @@ type PipelineConfig struct {
 	Executors map[string]ExecutorConfig `yaml:"Executors"`
 	Logging   LoggingConfig             `yaml:"Logging"`
 	Graph     string                    `yaml:"Graph"`
-	Status    map[string]string         `yaml:"Status"`
 	Nodes     map[string]NodeConfig     `yaml:"Nodes"`
 }
 
@@ -65,6 +94,7 @@ type LoggingConfig struct {
 
 // Step 步骤配置结构
 type Step struct {
+	Id          string `yaml:"id,omitempty"`          // 步骤ID (UUID，无连字符)
 	Name        string `yaml:"name"`
 	Description string `yaml:"description,omitempty"` // 步骤具体职责描述
 	Run         string `yaml:"run"`
@@ -72,13 +102,15 @@ type Step struct {
 
 // NodeConfig 节点配置结构
 type NodeConfig struct {
+	Id          string                 `yaml:"id,omitempty"`          // 节点ID (UUID，无连字符)
 	Name        string                 `yaml:"name,omitempty"`        // 节点显示名称
 	Description string                 `yaml:"description,omitempty"` // 节点业务功能描述
 	Executor    string                 `yaml:"executor"`
 	Image       string                 `yaml:"image"`
 	Steps       []Step                 `yaml:"steps"`
 	Config      map[string]interface{} `yaml:"Config"`
-	Extract     *ExtractConfig         `yaml:"extract,omitempty"` // 提取配置
+	Extract     *ExtractConfig         `yaml:"extract,omitempty"`     // 提取配置
+	Runtime     *NodeRuntimeStatus     `yaml:"runtime,omitempty"`     // 运行时状态 (可选)
 }
 
 // ExtractConfig 输出提取配置
