@@ -1,4 +1,4 @@
-package pipelinex
+package logger
 
 import (
 	"context"

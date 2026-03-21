@@ -1,0 +1,55 @@
+Version: "1.0"
+Name: "示例流水线"
+
+Param:
+  projectName: "pipelinex-demo"
+  buildId: "001"
+
+Executors:
+  local:
+    type: local
+    config:
+      shell: /bin/bash
+      workdir: /tmp
+
+Graph: |
+  stateDiagram-v2
+    [*] --> Step1
+    Step1 --> Step2
+    Step2 --> Step3
+    Step3 --> [*]
+
+Nodes:
+  Step1:
+    name: "创建工作目录"
+    description: "创建临时工作目录"
+    executor: local
+    steps:
+      - name: mkdir
+        run: |
+          mkdir -p /tmp/pipelinex-demo
+          echo "工作目录已创建: /tmp/pipelinex-demo"
+          echo "项目名称: {{ Param.projectName }}"
+
+  Step2:
+    name: "写入文件"
+    description: "在工作目录中创建测试文件"
+    executor: local
+    steps:
+      - name: write-file
+        run: |
+          cd /tmp/pipelinex-demo
+          echo "Hello PipelineX!" > hello.txt
+          echo "Build ID: {{ Param.buildId }}" >> hello.txt
+          echo "文件内容:"
+          cat hello.txt
+
+  Step3:
+    name: "清理"
+    description: "清理临时文件"
+    executor: local
+    steps:
+      - name: cleanup
+        run: |
+          rm -rf /tmp/pipelinex-demo
+          echo "清理完成"

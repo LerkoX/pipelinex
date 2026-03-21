@@ -1,6 +1,10 @@
 package pipelinex
 
-import "context"
+import (
+	"context"
+
+	"github.com/chenyingqiao/pipelinex/logger"
+)
 
 // Runtime 运行时
 type Runtime interface {
@@ -25,7 +29,7 @@ type Runtime interface {
 	// 启动后台
 	StartBackground()
 	// 设置日志推送器
-	SetPusher(pusher Pusher)
+	SetPusher(pusher logger.Pusher)
 	// 设置模板引擎
 	SetTemplateEngine(engine TemplateEngine)
 }

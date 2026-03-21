@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/chenyingqiao/pipelinex/executor/provider"
+	"github.com/chenyingqiao/pipelinex/logger"
 	"github.com/tetrafolium/mermaid-check/ast"
 	"github.com/tetrafolium/mermaid-check/parser"
 	"gopkg.in/yaml.v2"
@@ -25,7 +26,7 @@ type RuntimeImpl struct {
 	cancel         context.CancelFunc  // 取消函数
 	doneChan       chan struct{}       // 完成通道
 	background     chan struct{}       // 后台处理完成通道
-	pusher         Pusher              // 日志推送器
+	pusher         logger.Pusher        // 日志推送器
 	templateEngine TemplateEngine      // 模板引擎
 }
 
@@ -631,7 +632,7 @@ func (r *RuntimeImpl) cleanupCompletedPipelines() {
 }
 
 // SetPusher 设置日志推送器
-func (r *RuntimeImpl) SetPusher(pusher Pusher) {
+func (r *RuntimeImpl) SetPusher(pusher logger.Pusher) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.pusher = pusher
