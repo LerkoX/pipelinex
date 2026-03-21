@@ -1,5 +1,9 @@
 # PipelineX
 
+<p align="center">
+  <img src="icon.ico" alt="PipelineX Icon">
+</p>
+
 A flexible and extensible CI/CD pipeline execution library for Go, supporting multiple execution backends and DAG-based workflow orchestration.
 
 [![Go Version](https://img.shields.io/badge/go-%3E%3D1.23-blue)](https://golang.org)
