@@ -1,5 +1,5 @@
 Version: "1.0"
-Name: 多节点测试
+Name: 数据传递示例
 Param:
   projectName: pipelinex-demo
   buildId: "001"
@@ -11,29 +11,75 @@ Executors:
       shell: /bin/bash
 Graph: |
   stateDiagram-v2
+    direction TB
     [*] --> Step1
     Step1 --> Step2
     Step1 --> Step3
-    Step2 --> [*]
-    Step3 --> [*]
+    Step2 --> Step4
+    Step3 --> Step4
+    Step4 --> [*]
 Nodes:
   Step1:
-    name: 显示项目信息
+    name: 生成构建信息
     executor: local
+    extract:
+      type: codec-block
     steps:
-      - name: echo-project
-        run: 'echo "项目名称: {{ Param.projectName }}"'
-      - name: echo-build-id
-        run: 'echo "BuildId ID: {{ Param.buildId }}"'
+      - name: generate-data
+        run: |
+          echo "=== 生成构建信息 ==="
+          echo "Build ID: {{ Param.buildId }}"
+          echo '```pipelinex-json'
+          echo '{"buildId": "{{ Param.buildId }}", "buildTime": "2024-01-01T00:00:00Z"}'
+          echo '```'
   Step2:
-    name: 测试任务A
+    name: 提取测试数据
     executor: local
+    extract:
+      type: regex
+      patterns:
+        testName: "Test Name: (.+)"
+        coverage: "Coverage: (\\d+)%"
     steps:
-      - name: echo-env
-        run: 'echo "任务A - 环境: {{ Param.environment }}"'
+      - name: run-tests
+        run: |
+          echo "=== 运行单元测试 ==="
+          echo "Test Name: unittest-core"
+          echo "Coverage: 85%"
+          echo "所有测试通过"
   Step3:
-    name: 测试任务B
+    name: 生成部署配置
+    executor: local
+    extract:
+      type: codec-block
+    steps:
+      - name: generate-deploy-config
+        run: |
+          echo "=== 生成部署配置 ==="
+          echo "使用构建ID: {{ Step1.buildId }}"
+          echo '```pipelinex-json'
+          echo '{"deployId": "DEP-{{ Step1.buildId }}", "environment": "{{ Param.environment }}"}'
+          echo '```'
+  Step4:
+    name: 最终部署和汇总
     executor: local
     steps:
-      - name: echo-done
-        run: 'echo "任务B - 所有步骤执行完成！"'
+      - name: summary
+        run: |
+          echo "=== 部署汇总 ==="
+          echo ""
+          echo "项目名称: {{ Param.projectName }}"
+          echo ""
+          echo "来自 Step1 的构建信息:"
+          echo "  - 构建ID: {{ Step1.buildId }}"
+          echo "  - 构建时间: {{ Step1.buildTime }}"
+          echo ""
+          echo "来自 Step2 的测试结果:"
+          echo "  - 测试名称: {{ Step2.testName }}"
+          echo "  - 覆盖率: {{ Step2.coverage }}%"
+          echo ""
+          echo "来自 Step3 的部署配置:"
+          echo "  - 部署ID: {{ Step3.deployId }}"
+          echo "  - 部署环境: {{ Step3.environment }}"
+          echo ""
+          echo "部署成功！"
