@@ -29,7 +29,8 @@
         "program": "${workspaceFolder}/bin/main.go",
         "mode": "debug",
         "args": [],
-        "env": {}
+        "env": {},
+        "cwd": "${workspaceFolder}/bin"
       }
     }
   }
