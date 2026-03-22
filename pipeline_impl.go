@@ -280,19 +280,21 @@ type PipelineImpl struct {
 	metadataStore    MetadataStore
 	listening        ListeningFn
 	listener         Listener
-	doneChan         <-chan struct{}
+	doneChan         chan struct{}
 	cancelFunc       context.CancelFunc
 	mu               sync.RWMutex
 	executorProvider ExecutorProvider
 	executors        map[string]Executor // 缓存已创建的executor
 	param            map[string]interface{} // 存储渲染后的Param值
 	templateEngine    TemplateEngine      // 模板引擎
+	cleanupOnce      sync.Once          // 保护清理操作只执行一次
 }
 
 func NewPipeline(ctx context.Context) Pipeline {
 	return &PipelineImpl{
 		id:        uuid.NewString(),
 		executors: make(map[string]Executor),
+		doneChan:  make(chan struct{}),
 	}
 }
 
@@ -395,16 +397,20 @@ func (p *PipelineImpl) Run(ctx context.Context) error {
 	p.cancelFunc = cancel
 	p.mu.Unlock()
 
-	done := make(chan struct{})
-	p.doneChan = done
-
 	defer func() {
-		close(done)
-		p.mu.Lock()
-		p.cancelFunc = nil
-		p.mu.Unlock()
-		// 清理所有executor
-		p.cleanupExecutors(ctx)
+		p.cleanupOnce.Do(func() {
+			close(p.doneChan)
+
+			p.mu.Lock()
+			if p.cancelFunc != nil {
+				p.cancelFunc()
+				p.cancelFunc = nil
+			}
+			p.mu.Unlock()
+
+			// 清理所有executor
+			p.cleanupExecutors(ctx)
+		})
 	}()
 
 	// 通知流水线开始

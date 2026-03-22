@@ -192,6 +192,10 @@ func (r *RuntimeImpl) renderConfig(config *PipelineConfig) error {
 			return fmt.Errorf("failed to render metadata: %w", err)
 		}
 		config.Metadate.Data = renderedMetadata
+		// 将渲染后的 Metadata 数据加入到上下文中，供步骤 run 引用
+		for k, v := range config.Metadate.Data {
+			ctx[k] = v
+		}
 	}
 
 	// 3. 渲染 Nodes 中所有步骤
@@ -255,6 +259,9 @@ func (r *RuntimeImpl) Cancel(ctx context.Context, id string) error {
 
 // RunAsync 执行异步流水线
 func (r *RuntimeImpl) RunAsync(ctx context.Context, id string, config string, listener Listener) (Pipeline, error) {
+	// 提前获取 templateEngine，避免在持有写锁时调用 GetTemplateEngine 导致死锁
+	templateEngine := r.GetTemplateEngine()
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -276,7 +283,7 @@ func (r *RuntimeImpl) RunAsync(ctx context.Context, id string, config string, li
 
 	// 创建流水线
 	pipeline := NewPipeline(ctx)
-	pipeline.SetTemplateEngine(r.GetTemplateEngine())
+	pipeline.SetTemplateEngine(templateEngine)
 
 	// 设置监听器
 	if listener != nil {

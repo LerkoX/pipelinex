@@ -44,7 +44,7 @@ func TestRuntimeImpl_RunSync(t *testing.T) {
 	// Prepare test configuration with new format
 	config := `
 Param:
-  test-param: "test-value"
+  testParam: "test-value"
 Executors:
   local:
     type: local
@@ -95,7 +95,7 @@ func TestRuntimeImpl_RunSync_InvalidConfig(t *testing.T) {
 	// Prepare invalid configuration
 	invalidConfig := `
 invalid: yaml: content
-  test-param: "test-value"
+  testParam: "test-value"
   missing: closing: brace
 `
 
@@ -113,7 +113,7 @@ func TestRuntimeImpl_RunSync_DuplicateID(t *testing.T) {
 	// Prepare test configuration with new format
 	config := `
 Param:
-  test-param: "test-value"
+  testParam: "test-value"
 Executors:
   local:
     type: local
@@ -151,7 +151,7 @@ func TestRuntimeImpl_RunAsync(t *testing.T) {
 	// Prepare test configuration with new format
 	config := `
 Param:
-  test-param: "test-value"
+  testParam: "test-value"
 Executors:
   local:
     type: local
@@ -208,7 +208,7 @@ func TestRuntimeImpl_Cancel(t *testing.T) {
 	// Prepare test configuration with new format - use sleep to ensure pipeline is running
 	config := `
 Param:
-  test-param: "test-value"
+  testParam: "test-value"
 Executors:
   local:
     type: local
@@ -372,7 +372,7 @@ func TestRuntimeImpl_ConcurrentAccess(t *testing.T) {
 	// Prepare test configuration with new format
 	configTemplate := `
 Param:
-  test-param: "test-value"
+  testParam: "test-value"
 Executors:
   local:
     type: local
@@ -798,7 +798,7 @@ Nodes:
         run: "echo 'test'"
 `
 
-	pipeline, err := runtime.RunSync(ctx, "test-param-self-ref", config, nil)
+	pipeline, err := runtime.RunSync(ctx, "testParam-self-ref", config, nil)
 	if err != nil {
 		t.Fatalf("RunSync failed: %v", err)
 	}
@@ -851,7 +851,7 @@ Nodes:
         run: "echo 'task1'"
 `
 
-	_, err := runtime.RunSync(ctx, "test-param-circular", config, nil)
+	_, err := runtime.RunSync(ctx, "testParam-circular", config, nil)
 	// 注意：实际实现中可能无法检测所有形式的循环引用
 	// 这里我们主要测试渲染不会导致程序崩溃
 	if err != nil {
@@ -890,7 +890,7 @@ Nodes:
     executor: local
     steps:
       - name: step1
-        run: "echo 'ns={{ .K8sNamespace }}, prefix={{ .ImagePrefix }}'"
+        run: "echo 'ns={{ K8sNamespace }}, prefix={{ ImagePrefix }}'"
 `
 
 	pipeline, err := runtime.RunSync(ctx, "test-metadata-ref-param", config, nil)
@@ -951,7 +951,7 @@ Nodes:
         run: "echo 'task1'"
 `
 
-	pipeline, err := runtime.RunSync(ctx, "test-param-nested", config, nil)
+	pipeline, err := runtime.RunSync(ctx, "testParam-nested", config, nil)
 	if err != nil {
 		t.Fatalf("RunSync failed: %v", err)
 	}
@@ -988,7 +988,7 @@ Nodes:
 `
 
 	// version未定义，应该保持模板字符串原样
-	pipeline, err := runtime.RunSync(ctx, "test-param-undefined", config, nil)
+	pipeline, err := runtime.RunSync(ctx, "testParam-undefined", config, nil)
 	if err != nil {
 		t.Fatalf("RunSync should not fail with undefined variables: %v", err)
 	}
