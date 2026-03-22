@@ -583,12 +583,19 @@ func (p *PipelineImpl) waitForResults(ctx context.Context, node Node, exec Execu
 				return lastErr, allOutput.String()
 			}
 
-			errCount := p.handleResult(ctx, node, exec, result, resultCount, steps, allOutput.String())
+			errCount := p.handleResult(ctx, node, exec, result, resultCount, steps)
 			if errCount.err != nil {
 				lastErr = errCount.err
 			}
 			resultCount = errCount.count
 			allOutput.WriteString(errCount.output)
+
+			// 在每个 StepResult 处理后，使用完整的累积输出进行提取
+			if stepResult, ok := result.(*StepResult); ok {
+				if err := p.extractOutput(ctx, node, stepResult, allOutput.String()); err != nil {
+					fmt.Printf("Failed to extract output from node %s: %v\n", node.Id(), err)
+				}
+			}
 		}
 	}
 
@@ -606,7 +613,7 @@ func (p *PipelineImpl) handleCancellation(ctx nodeContext) {
 }
 
 // handleResult 处理单个结果
-func (p *PipelineImpl) handleResult(ctx context.Context, node Node, _ Executor, result any, resultCount int, steps []Step, currentOutput string) resultHandler {
+func (p *PipelineImpl) handleResult(ctx context.Context, node Node, _ Executor, result any, resultCount int, steps []Step) resultHandler {
 	handler := resultHandler{count: resultCount}
 
 	switch v := result.(type) {
@@ -622,12 +629,7 @@ func (p *PipelineImpl) handleResult(ctx context.Context, node Node, _ Executor, 
 		if resultCount < len(steps) {
 			p.updateStepRuntimeStatus(node, steps[resultCount], v)
 		}
-
-	handler.count++
-		// 执行输出提取
-		if err := p.extractOutput(ctx, node, v, currentOutput); err != nil {
-			fmt.Printf("Failed to extract output from node %s: %v\n", node.Id(), err)
-		}
+		handler.count++
 	case []byte:
 		// 实时输出
 	output := string(v)

@@ -8,13 +8,16 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
 // InConfigMetadataStore 从配置中直接读取数据的元数据存储
+// 线程安全，支持运行时写入提取的数据
 type InConfigMetadataStore struct {
+	mu   sync.RWMutex
 	data map[string]string
 }
 
@@ -33,6 +36,8 @@ func NewInConfigMetadataStore(config MetadataConfig) (*InConfigMetadataStore, er
 
 // Get 获取元数据值
 func (s *InConfigMetadataStore) Get(ctx context.Context, key string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	value, exists := s.data[key]
 	if !exists {
 		return "", fmt.Errorf("key %s not found", key)
@@ -40,14 +45,20 @@ func (s *InConfigMetadataStore) Get(ctx context.Context, key string) (string, er
 	return value, nil
 }
 
-// Set 设置元数据值（in-config 类型为只读，返回错误）
+// Set 设置元数据值（支持运行时写入）
 func (s *InConfigMetadataStore) Set(ctx context.Context, key string, value string) error {
-	return fmt.Errorf("in-config metadata store is read-only")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data[key] = value
+	return nil
 }
 
-// Delete 删除元数据（in-config 类型为只读，返回错误）
+// Delete 删除元数据
 func (s *InConfigMetadataStore) Delete(ctx context.Context, key string) error {
-	return fmt.Errorf("in-config metadata store is read-only")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.data, key)
+	return nil
 }
 
 // Close 关闭存储
