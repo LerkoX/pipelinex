@@ -108,7 +108,7 @@ type NodeConfig struct {
 	Executor    string                 `yaml:"executor"`
 	Image       string                 `yaml:"image"`
 	Steps       []Step                 `yaml:"steps"`
-	Config      map[string]interface{} `yaml:"Config"`
+	Config      map[string]interface{} `yaml:"config,omitempty"`
 	Extract     *ExtractConfig         `yaml:"extract,omitempty"`     // 提取配置
 	Runtime     *NodeRuntimeStatus     `yaml:"runtime,omitempty"`     // 运行时状态 (可选)
 }

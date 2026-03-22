@@ -2,6 +2,7 @@ package pipelinex
 
 import (
 	"context"
+	"sync"
 	"testing"
 )
 
@@ -71,12 +72,15 @@ func TestDGA_MultipleStartNodes(t *testing.T) {
 		}
 	}
 
-	// 收集访问的节点
+	// 收集访问的节点（使用互斥锁保护并发写入）
+	var mu sync.Mutex
 	visited := make(map[string]bool)
 	evalCtx := NewEvaluationContext()
 	if err := dgaGraph.Traversal(context.Background(), evalCtx, func(ctx context.Context, node Node) error {
 		t.Log("Visiting node:", node.Id())
+		mu.Lock()
 		visited[node.Id()] = true
+		mu.Unlock()
 		return nil
 	}); err != nil {
 		t.Error(err)

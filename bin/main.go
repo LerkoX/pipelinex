@@ -105,64 +105,13 @@ func main() {
 		ctx:    ctx,
 	}
 
-	// 定义简单的 pipeline 配置（使用 local 执行器）
-	configYAML := `
-Version: "1.0"
-Name: "示例流水线"
-
-Param:
-  projectName: "pipelinex-demo"
-  buildId: "001"
-
-Executors:
-  local:
-    type: local
-    config:
-      shell: /bin/bash
-      workdir: /tmp
-
-Graph: |
-  stateDiagram-v2
-    [*] --> Step1
-    Step1 --> Step2
-    Step2 --> Step3
-    Step3 --> [*]
-
-Nodes:
-  Step1:
-    name: "创建工作目录"
-    description: "创建临时工作目录"
-    executor: local
-    steps:
-      - name: mkdir
-        run: |
-          mkdir -p /tmp/pipelinex-demo
-          echo "工作目录已创建: /tmp/pipelinex-demo"
-          echo "项目名称: {{ Param.projectName }}"
-
-  Step2:
-    name: "写入文件"
-    description: "在工作目录中创建测试文件"
-    executor: local
-    steps:
-      - name: write-file
-        run: |
-          cd /tmp/pipelinex-demo
-          echo "Hello PipelineX!" > hello.txt
-          echo "Build ID: {{ Param.buildId }}" >> hello.txt
-          echo "文件内容:"
-          cat hello.txt
-
-  Step3:
-    name: "清理"
-    description: "清理临时文件"
-    executor: local
-    steps:
-      - name: cleanup
-        run: |
-          rm -rf /tmp/pipelinex-demo
-          echo "清理完成"
-`
+	// 读取配置文件
+	configData, err := os.ReadFile("./config.yaml")
+	if err != nil {
+		fmt.Printf("Failed to read config file: %v\n", err)
+		os.Exit(1)
+	}
+	configYAML := string(configData)
 
 	// 同步执行流水线
 	pipelineID := "demo-pipeline-" + time.Now().Format("20060102150405")
@@ -186,7 +135,12 @@ Nodes:
 	nodes := graph.Nodes()
 	fmt.Println("\n节点状态:")
 	for name, node := range nodes {
-		fmt.Printf("  - %s: %s\n", name, node.Status())
+		runtimeStatus := node.GetRuntimeStatus()
+		if runtimeStatus != nil {
+			fmt.Printf("  - %s: %s\n", name, runtimeStatus.Status)
+		} else {
+			fmt.Printf("  - %s: UNKNOWN\n", name)
+		}
 	}
 
 	// 打印元数据（如果有）

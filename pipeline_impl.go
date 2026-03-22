@@ -286,6 +286,7 @@ type PipelineImpl struct {
 	executorProvider ExecutorProvider
 	executors        map[string]Executor // 缓存已创建的executor
 	param            map[string]interface{} // 存储渲染后的Param值
+	templateEngine    TemplateEngine      // 模板引擎
 }
 
 func NewPipeline(ctx context.Context) Pipeline {
@@ -796,6 +797,56 @@ func (p *PipelineImpl) cleanupExecutors(ctx context.Context) {
 		}
 	}
 	p.executors = make(map[string]Executor)
+}
+
+// SetTemplateEngine 设置模板引擎
+func (p *PipelineImpl) SetTemplateEngine(engine TemplateEngine) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.templateEngine = engine
+}
+
+// GetTemplateEngine 获取模板引擎
+func (p *PipelineImpl) GetTemplateEngine() TemplateEngine {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.templateEngine
+}
+
+// buildRenderContext 构建渲染上下文，包含 Param 和动态 Metadata
+func (p *PipelineImpl) buildRenderContext() map[string]any {
+	ctx := make(map[string]any)
+
+	// 添加 Param
+	p.mu.RLock()
+	if p.param != nil {
+		ctx["Param"] = p.param
+		for k, v := range p.param {
+			ctx[k] = v
+		}
+	}
+	p.mu.RUnlock()
+
+	// 添加 Metadata 和其他动态数据
+	metadata := p.Metadata()
+	if metadata != nil {
+		ctx["Metadata"] = metadata
+		for k, v := range metadata {
+			ctx[k] = v
+		}
+	}
+
+	return ctx
+}
+
+// renderStringWithRuntimeContext 使用运行时上下文渲染字符串
+func (p *PipelineImpl) renderStringWithRuntimeContext(template string) (string, error) {
+	engine := p.GetTemplateEngine()
+	if engine == nil {
+		return template, nil // 没有模板引擎，返回原始值
+	}
+	ctx := p.buildRenderContext()
+	return engine.EvaluateString(template, ctx)
 }
 
 // extractOutput 从节点输出中提取数据并保存到metadata

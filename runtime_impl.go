@@ -161,6 +161,54 @@ func (r *RuntimeImpl) renderMetadata(metadataData map[string]interface{}, param 
 	return result, nil
 }
 
+// renderConfig 渲染配置中所有引用 Param 的地方（配置阶段）
+func (r *RuntimeImpl) renderConfig(config *PipelineConfig) error {
+	// 构建 Param 上下文
+	ctx := map[string]any{
+		"Param": config.Param,
+	}
+	for k, v := range config.Param {
+		ctx[k] = v
+	}
+
+	// 1. 渲染 Param 本身（支持自引用）
+	if len(config.Param) > 0 {
+		renderedParam, err := r.renderParam(config.Param)
+		if err != nil {
+			return fmt.Errorf("failed to render param: %w", err)
+		}
+		config.Param = renderedParam
+		// 更新上下文
+		ctx["Param"] = config.Param
+		for k, v := range config.Param {
+			ctx[k] = v
+		}
+	}
+
+	// 2. 渲染 Metadata
+	if config.Metadate.Type != "" && config.Metadate.Data != nil && len(config.Metadate.Data) > 0 {
+		renderedMetadata, err := r.renderMetadata(config.Metadate.Data, config.Param)
+		if err != nil {
+			return fmt.Errorf("failed to render metadata: %w", err)
+		}
+		config.Metadate.Data = renderedMetadata
+	}
+
+	// 3. 渲染 Nodes 中所有步骤
+	for nodeName, nodeConfig := range config.Nodes {
+		for stepIdx := range nodeConfig.Steps {
+			renderedRun, err := r.templateEngine.EvaluateString(nodeConfig.Steps[stepIdx].Run, ctx)
+			if err != nil {
+				return fmt.Errorf("failed to render step run in node %s step %s: %w",
+					nodeName, nodeConfig.Steps[stepIdx].Name, err)
+			}
+			config.Nodes[nodeName].Steps[stepIdx].Run = renderedRun
+		}
+	}
+
+	return nil
+}
+
 // NewRuntime 创建新的Runtime实例
 func NewRuntime(ctx context.Context) Runtime {
 	ctx, cancel := context.WithCancel(ctx)
@@ -221,26 +269,14 @@ func (r *RuntimeImpl) RunAsync(ctx context.Context, id string, config string, li
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	// 渲染Param
-	if len(pipelineConfig.Param) > 0 {
-		renderedParam, err := r.renderParam(pipelineConfig.Param)
-		if err != nil {
-			return nil, fmt.Errorf("failed to render param: %w", err)
-		}
-		pipelineConfig.Param = renderedParam
-	}
-
-	// 渲染Metadata
-	if pipelineConfig.Metadate.Type != "" && len(pipelineConfig.Metadate.Data) > 0 {
-		renderedMetadata, err := r.renderMetadata(pipelineConfig.Metadate.Data, pipelineConfig.Param)
-		if err != nil {
-			return nil, fmt.Errorf("failed to render metadata: %w", err)
-		}
-		pipelineConfig.Metadate.Data = renderedMetadata
+	// 统一渲染配置中所有引用 Param 的地方
+	if err := r.renderConfig(pipelineConfig); err != nil {
+		return nil, fmt.Errorf("failed to render config: %w", err)
 	}
 
 	// 创建流水线
 	pipeline := NewPipeline(ctx)
+	pipeline.SetTemplateEngine(r.GetTemplateEngine())
 
 	// 设置监听器
 	if listener != nil {
@@ -293,13 +329,14 @@ func (r *RuntimeImpl) RunAsync(ctx context.Context, id string, config string, li
 
 // RunSync 执行同步流水线
 func (r *RuntimeImpl) RunSync(ctx context.Context, id string, config string, listener Listener) (Pipeline, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	// 检查是否已存在相同ID的流水线
+	r.mu.Lock()
 	if _, exists := r.pipelineIds[id]; exists {
+		r.mu.Unlock()
 		return nil, fmt.Errorf("pipeline with id %s already exists", id)
 	}
+	r.pipelineIds[id] = true
+	r.mu.Unlock()
 
 	// 解析配置
 	pipelineConfig, err := r.parseConfig(config)
@@ -307,26 +344,14 @@ func (r *RuntimeImpl) RunSync(ctx context.Context, id string, config string, lis
 		return nil, fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	// 渲染Param
-	if len(pipelineConfig.Param) > 0 {
-		renderedParam, err := r.renderParam(pipelineConfig.Param)
-		if err != nil {
-			return nil, fmt.Errorf("failed to render param: %w", err)
-		}
-		pipelineConfig.Param = renderedParam
-	}
-
-	// 渲染Metadata
-	if pipelineConfig.Metadate.Type != "" && len(pipelineConfig.Metadate.Data) > 0 {
-		renderedMetadata, err := r.renderMetadata(pipelineConfig.Metadate.Data, pipelineConfig.Param)
-		if err != nil {
-			return nil, fmt.Errorf("failed to render metadata: %w", err)
-		}
-		pipelineConfig.Metadate.Data = renderedMetadata
+	// 统一渲染配置中所有引用 Param 的地方
+	if err := r.renderConfig(pipelineConfig); err != nil {
+		return nil, fmt.Errorf("failed to render config: %w", err)
 	}
 
 	// 创建流水线
 	pipeline := NewPipeline(ctx)
+	pipeline.SetTemplateEngine(r.GetTemplateEngine())
 
 	// 设置监听器
 	if listener != nil {
@@ -357,9 +382,10 @@ func (r *RuntimeImpl) RunSync(ctx context.Context, id string, config string, lis
 	}
 	pipeline.SetExecutorProvider(execProvider)
 
-	// 存储流水线并标记ID为已使用
+	// 存储流水线
+	r.mu.Lock()
 	r.pipelines[id] = pipeline
-	r.pipelineIds[id] = true
+	r.mu.Unlock()
 
 	err = pipeline.Run(ctx)
 	if err != nil {
@@ -367,7 +393,9 @@ func (r *RuntimeImpl) RunSync(ctx context.Context, id string, config string, lis
 	}
 
 	// 清理已完成的流水线，但保留ID记录
+	r.mu.Lock()
 	delete(r.pipelines, id)
+	r.mu.Unlock()
 
 	return pipeline, nil
 }
@@ -421,7 +449,8 @@ func (r *RuntimeImpl) StopBackground() {
 // setupMetadata 设置流水线的metadata
 func (r *RuntimeImpl) setupMetadata(ctx context.Context, pipeline Pipeline, config *PipelineConfig) error {
 	// 检查是否有metadata配置（注意配置中是Metadate）
-	if config.Metadate.Type == "" {
+	// 只有当配置了 Metadate.Type 且有数据时才创建 store
+	if config.Metadate.Type == "" || config.Metadate.Data == nil || len(config.Metadate.Data) == 0 {
 		return nil
 	}
 
@@ -653,6 +682,11 @@ func (r *RuntimeImpl) getTemplateEngine() TemplateEngine {
 		return NewPongo2TemplateEngine()
 	}
 	return r.templateEngine
+}
+
+// GetTemplateEngine 获取当前使用的模板引擎
+func (r *RuntimeImpl) GetTemplateEngine() TemplateEngine {
+	return r.getTemplateEngine()
 }
 
 

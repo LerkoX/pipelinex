@@ -1,55 +1,39 @@
 Version: "1.0"
-Name: "示例流水线"
-
+Name: 多节点测试
 Param:
-  projectName: "pipelinex-demo"
+  projectName: pipelinex-demo
   buildId: "001"
-
+  environment: production
 Executors:
   local:
     type: local
     config:
       shell: /bin/bash
-      workdir: /tmp
-
 Graph: |
   stateDiagram-v2
     [*] --> Step1
     Step1 --> Step2
-    Step2 --> Step3
+    Step1 --> Step3
+    Step2 --> [*]
     Step3 --> [*]
-
 Nodes:
   Step1:
-    name: "创建工作目录"
-    description: "创建临时工作目录"
+    name: 显示项目信息
     executor: local
     steps:
-      - name: mkdir
-        run: |
-          mkdir -p /tmp/pipelinex-demo
-          echo "工作目录已创建: /tmp/pipelinex-demo"
-          echo "项目名称: {{ Param.projectName }}"
-
+      - name: echo-project
+        run: 'echo "项目名称: {{ Param.projectName }}"'
+      - name: echo-build-id
+        run: 'echo "BuildId ID: {{ Param.buildId }}"'
   Step2:
-    name: "写入文件"
-    description: "在工作目录中创建测试文件"
+    name: 测试任务A
     executor: local
     steps:
-      - name: write-file
-        run: |
-          cd /tmp/pipelinex-demo
-          echo "Hello PipelineX!" > hello.txt
-          echo "Build ID: {{ Param.buildId }}" >> hello.txt
-          echo "文件内容:"
-          cat hello.txt
-
+      - name: echo-env
+        run: 'echo "任务A - 环境: {{ Param.environment }}"'
   Step3:
-    name: "清理"
-    description: "清理临时文件"
+    name: 测试任务B
     executor: local
     steps:
-      - name: cleanup
-        run: |
-          rm -rf /tmp/pipelinex-demo
-          echo "清理完成"
+      - name: echo-done
+        run: 'echo "任务B - 所有步骤执行完成！"'

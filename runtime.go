@@ -32,4 +32,6 @@ type Runtime interface {
 	SetPusher(pusher logger.Pusher)
 	// 设置模板引擎
 	SetTemplateEngine(engine TemplateEngine)
+	// 获取模板引擎
+	GetTemplateEngine() TemplateEngine
 }
