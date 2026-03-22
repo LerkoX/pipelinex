@@ -20,6 +20,18 @@
         "args": ["-test.v", "-test.run", "^${TestIdentifier}"],
         "env": {}
       }
+    },
+    "run-bin-demo": {
+      "adapter": "delve",
+      "variables": {},
+      "configuration": {
+        "request": "launch",
+        "program": "${workspaceFolder}/bin/main.go",
+        "mode": "debug",
+        "args": [],
+        "env": {},
+        "cwd": "${workspaceFolder}/bin"
+      }
     }
   }
 }

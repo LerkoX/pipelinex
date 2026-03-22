@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/chenyingqiao/pipelinex/executor"
 	"github.com/google/uuid"
 	"github.com/thoas/go-funk"
 )
@@ -278,18 +280,21 @@ type PipelineImpl struct {
 	metadataStore    MetadataStore
 	listening        ListeningFn
 	listener         Listener
-	doneChan         <-chan struct{}
+	doneChan         chan struct{}
 	cancelFunc       context.CancelFunc
 	mu               sync.RWMutex
 	executorProvider ExecutorProvider
 	executors        map[string]Executor // 缓存已创建的executor
 	param            map[string]interface{} // 存储渲染后的Param值
+	templateEngine    TemplateEngine      // 模板引擎
+	cleanupOnce      sync.Once          // 保护清理操作只执行一次
 }
 
 func NewPipeline(ctx context.Context) Pipeline {
 	return &PipelineImpl{
 		id:        uuid.NewString(),
 		executors: make(map[string]Executor),
+		doneChan:  make(chan struct{}),
 	}
 }
 
@@ -369,6 +374,22 @@ func (p *PipelineImpl) Done() <-chan struct{} {
 	return p.doneChan
 }
 
+// shouldSkipNode 检查节点是否应该跳过执行
+func (p *PipelineImpl) shouldSkipNode(node Node) bool {
+	runtimeStatus := node.GetRuntimeStatus()
+	if runtimeStatus == nil {
+		return false
+	}
+	// SUCCESS、FAILED、CANCELLED 状态的节点都跳过
+	// RUNNING 状态的节点需要恢复（不跳过）
+	switch runtimeStatus.Status {
+	case StatusSuccess, StatusFailed, StatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
+
 // Run 执行流水线
 func (p *PipelineImpl) Run(ctx context.Context) error {
 	p.mu.Lock()
@@ -376,16 +397,20 @@ func (p *PipelineImpl) Run(ctx context.Context) error {
 	p.cancelFunc = cancel
 	p.mu.Unlock()
 
-	done := make(chan struct{})
-	p.doneChan = done
-
 	defer func() {
-		close(done)
-		p.mu.Lock()
-		p.cancelFunc = nil
-		p.mu.Unlock()
-		// 清理所有executor
-		p.cleanupExecutors(ctx)
+		p.cleanupOnce.Do(func() {
+			close(p.doneChan)
+
+			p.mu.Lock()
+			if p.cancelFunc != nil {
+				p.cancelFunc()
+				p.cancelFunc = nil
+			}
+			p.mu.Unlock()
+
+			// 清理所有executor
+			p.cleanupExecutors(ctx)
+		})
 	}()
 
 	// 通知流水线开始
@@ -417,6 +442,13 @@ func (p *PipelineImpl) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
+		}
+
+		// 检查是否应该跳过此节点
+		if p.shouldSkipNode(node) {
+			fmt.Printf("Skipping node %s (status: %s)\n", node.Id(), node.GetRuntimeStatus().Status)
+			p.notifyEvent(PipelineNodeFinish)
+			return nil
 		}
 
 		// 通知节点开始
@@ -460,72 +492,217 @@ func (p *PipelineImpl) Run(ctx context.Context) error {
 }
 
 // executeNode 执行单个节点
-func (p *PipelineImpl) executeNode(ctx context.Context, node Node, executor Executor) error {
+func (p *PipelineImpl) executeNode(ctx context.Context, node Node, exec Executor) error {
 	steps := node.GetSteps()
 	if len(steps) == 0 {
 		fmt.Printf("Node %s has no steps to execute\n", node.Id())
 		return nil
 	}
 
-	// 创建命令和结果通道
-	commandChan := make(chan any, len(steps))
-	resultChan := make(chan any, len(steps)*10) // 预留足够空间用于输出
+	// 1. 初始化节点运行时状态
+	runtimeStatus := p.initializeNodeRuntimeStatus(node, exec)
+	node.SetRuntimeStatus(runtimeStatus)
 
-	// 启动executor的Transfer goroutine
-	go executor.Transfer(ctx, resultChan, commandChan)
+	// 2. 设置通道和启动 executor
+	commandChan, resultChan := p.setupExecutorChannels(ctx, exec, steps)
 
-	// 发送所有步骤（转换为命令字符串）
-	go func() {
-		defer close(commandChan)
-		for _, step := range steps {
-			select {
-			case <-ctx.Done():
-				return
-			case commandChan <- step.Run:
-			}
+	// 3. 发送所有步骤命令
+	go p.sendCommands(ctx, commandChan, steps)
+
+	// 4. 等待并处理所有结果
+	lastErr, _ := p.waitForResults(ctx, node, exec, resultChan, steps)
+
+	// 5. 更新节点最终状态
+	if runtimeStatus = node.GetRuntimeStatus(); runtimeStatus != nil {
+		p.updateNodeFinalStatus(runtimeStatus, lastErr)
+		node.SetRuntimeStatus(runtimeStatus)
+	}
+
+	return lastErr
+}
+
+// initializeNodeRuntimeStatus 初始化节点运行时状态
+func (p *PipelineImpl) initializeNodeRuntimeStatus(node Node, exec Executor) *NodeRuntimeStatus {
+	node.EnsureIds()
+	runtimeStatus := node.GetRuntimeStatus()
+	if runtimeStatus == nil {
+		runtimeStatus = &NodeRuntimeStatus{
+			Id:    NewUUID(),
+			Steps: []StepRuntimeStatus{},
 		}
-	}()
+	}
 
-	// 等待所有结果
+	// 更新节点状态
+	runtimeStatus.Status = StatusRunning
+	runtimeStatus.StartTime = time.Now().Format(time.RFC3339)
+
+	// 收集 Executor 信息
+	if infoProvider, ok := exec.(executor.ExecutorInfoProvider); ok {
+		runtimeStatus.Executor = &ExecutorRuntimeInfo{
+			Type:       infoProvider.GetType(),
+			InstanceId: infoProvider.GetInstanceId(),
+			Status:     executor.ExecutorStatusRunning,
+			Info:       infoProvider.GetRuntimeInfo(),
+		}
+	}
+
+	return runtimeStatus
+}
+
+// setupExecutorChannels 设置通道并启动 executor
+func (p *PipelineImpl) setupExecutorChannels(ctx context.Context, exec Executor, steps []Step) (chan any, chan any) {
+	commandChan := make(chan any, len(steps))
+	resultChan := make(chan any, len(steps)*10)
+
+	// 启动 executor 的 Transfer goroutine
+	go exec.Transfer(ctx, resultChan, commandChan)
+
+	return commandChan, resultChan
+}
+
+// sendCommands 发送所有步骤命令
+func (p *PipelineImpl) sendCommands(ctx context.Context, commandChan chan any, steps []Step) {
+	defer close(commandChan)
+	for _, step := range steps {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		// 运行时渲染 step.Run，可以引用前面节点 extract 的数据
+		renderedRun, err := p.renderStringWithRuntimeContext(step.Run)
+		if err != nil {
+			fmt.Printf("Failed to render step %s: %v, using original command\n", step.Name, err)
+			renderedRun = step.Run // 渲染失败时使用原始命令
+		}
+
+		commandChan <- renderedRun
+	}
+}
+
+// waitForResults 等待并处理所有结果
+func (p *PipelineImpl) waitForResults(ctx context.Context, node Node, exec Executor, resultChan chan any, steps []Step) (error, string) {
 	var lastErr error
 	resultCount := 0
-	expectedResults := len(steps) // 每个步骤至少返回一个结果
-
-	// 收集所有输出，用于提取
+	expectedResults := len(steps)
 	var allOutput strings.Builder
 
 	for resultCount < expectedResults {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			p.handleCancellation(nodeContext{ctx: ctx, node: node})
+			return ctx.Err(), allOutput.String()
 		case result, ok := <-resultChan:
 			if !ok {
-				return lastErr
+				return lastErr, allOutput.String()
 			}
 
-			switch v := result.(type) {
-			case error:
-				lastErr = v
-				resultCount++
-			case *StepResult:
-				if v.Error != nil {
-					lastErr = v.Error
-				}
-				resultCount++
+			errCount := p.handleResult(ctx, node, exec, result, resultCount, steps)
+			if errCount.err != nil {
+				lastErr = errCount.err
+			}
+			resultCount = errCount.count
+			allOutput.WriteString(errCount.output)
 
-				// 执行输出提取
-				if err := p.extractOutput(ctx, node, v, allOutput.String()); err != nil {
+			// 在每个 StepResult 处理后，使用完整的累积输出进行提取
+			if stepResult, ok := result.(*StepResult); ok {
+				if err := p.extractOutput(ctx, node, stepResult, allOutput.String()); err != nil {
 					fmt.Printf("Failed to extract output from node %s: %v\n", node.Id(), err)
 				}
-			case []byte:
-				// 实时输出，打印到控制台
-				fmt.Print(string(v))
-				allOutput.Write(v) // 收集输出
 			}
 		}
 	}
 
-	return lastErr
+	return lastErr, allOutput.String()
+}
+
+// handleCancellation 处理节点取消
+func (p *PipelineImpl) handleCancellation(ctx nodeContext) {
+	runtimeStatus := ctx.node.GetRuntimeStatus()
+	if runtimeStatus != nil {
+		runtimeStatus.Status = StatusCancelled
+		runtimeStatus.EndTime = time.Now().Format(time.RFC3339)
+		ctx.node.SetRuntimeStatus(runtimeStatus)
+	}
+}
+
+// handleResult 处理单个结果
+func (p *PipelineImpl) handleResult(ctx context.Context, node Node, _ Executor, result any, resultCount int, steps []Step) resultHandler {
+	handler := resultHandler{count: resultCount}
+
+	switch v := result.(type) {
+	case error:
+		handler.err = v
+		handler.count++
+	case *StepResult:
+		if v.Error != nil {
+			handler.err = v.Error
+		}
+
+		// 更新步骤运行时状态
+		if resultCount < len(steps) {
+			p.updateStepRuntimeStatus(node, steps[resultCount], v)
+		}
+		handler.count++
+	case []byte:
+		// 实时输出
+	output := string(v)
+		fmt.Print(output)
+		handler.output = output
+	}
+
+	return handler
+}
+
+// resultHandler 处理结果的辅助结构
+type resultHandler struct {
+	err    error
+	count  int
+	output string
+}
+
+// nodeContext 节点上下文辅助结构
+type nodeContext struct {
+	ctx  context.Context
+	node Node
+}
+
+// updateStepRuntimeStatus 更新步骤运行时状态
+func (p *PipelineImpl) updateStepRuntimeStatus(node Node, step Step, result *StepResult) {
+	stepStatus := StepRuntimeStatus{
+		Id:     step.Id,
+		Name:   step.Name,
+		Status: StatusSuccess,
+	}
+
+	if !result.StartTime.IsZero() {
+		stepStatus.StartTime = result.StartTime.Format(time.RFC3339)
+	}
+	if !result.FinishTime.IsZero() {
+		stepStatus.EndTime = result.FinishTime.Format(time.RFC3339)
+	}
+	if result.Error != nil {
+		stepStatus.Status = StatusFailed
+		stepStatus.Error = result.Error.Error()
+	}
+
+	node.SetStepRuntimeStatus(&stepStatus)
+}
+
+// updateNodeFinalStatus 更新节点最终状态
+func (p *PipelineImpl) updateNodeFinalStatus(runtimeStatus *NodeRuntimeStatus, err error) {
+	if err != nil {
+		runtimeStatus.Status = StatusFailed
+	} else {
+		runtimeStatus.Status = StatusSuccess
+	}
+	runtimeStatus.EndTime = time.Now().Format(time.RFC3339)
+
+	// 更新 Executor 状态为 DESTROYED
+	if runtimeStatus.Executor != nil {
+		runtimeStatus.Executor.Status = executor.ExecutorStatusDestroyed
+	}
 }
 
 // 这个主要是在运行过程中节点状态或者流水线状态变化，就会触发这个函数
@@ -639,6 +816,74 @@ func (p *PipelineImpl) cleanupExecutors(ctx context.Context) {
 	p.executors = make(map[string]Executor)
 }
 
+// SetTemplateEngine 设置模板引擎
+func (p *PipelineImpl) SetTemplateEngine(engine TemplateEngine) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.templateEngine = engine
+}
+
+// GetTemplateEngine 获取模板引擎
+func (p *PipelineImpl) GetTemplateEngine() TemplateEngine {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.templateEngine
+}
+
+// buildRenderContext 构建渲染上下文，包含 Param 和动态 Metadata
+func (p *PipelineImpl) buildRenderContext() map[string]any {
+	ctx := make(map[string]any)
+
+	// 添加 Param
+	p.mu.RLock()
+	if p.param != nil {
+		ctx["Param"] = p.param
+		for k, v := range p.param {
+			ctx[k] = v
+		}
+	}
+	p.mu.RUnlock()
+
+	// 添加 Metadata 和其他动态数据
+	metadata := p.Metadata()
+	if metadata != nil {
+		ctx["Metadata"] = metadata
+		// 将平铺的 metadata 转换为嵌套结构
+		// 例如：Node1.value = "42", Node1.message = "hello"
+		// 转换为：Node1 = {"value": "42", "message": "hello"}
+		for k, v := range metadata {
+			// 检查键名是否包含点（节点ID.键名）
+			if dotIdx := strings.LastIndex(k, "."); dotIdx > 0 {
+				nodeID := k[:dotIdx]
+				keyName := k[dotIdx+1:]
+				// 如果节点ID 的嵌套对象不存在，创建它
+				if _, exists := ctx[nodeID]; !exists {
+					ctx[nodeID] = make(map[string]any)
+				}
+				// 将键值添加到节点的嵌套对象中
+				if nodeObj, ok := ctx[nodeID].(map[string]any); ok {
+					nodeObj[keyName] = v
+				}
+			} else {
+				// 不包含点的键，直接添加
+				ctx[k] = v
+			}
+		}
+	}
+
+	return ctx
+}
+
+// renderStringWithRuntimeContext 使用运行时上下文渲染字符串
+func (p *PipelineImpl) renderStringWithRuntimeContext(template string) (string, error) {
+	engine := p.GetTemplateEngine()
+	if engine == nil {
+		return template, nil // 没有模板引擎，返回原始值
+	}
+	ctx := p.buildRenderContext()
+	return engine.EvaluateString(template, ctx)
+}
+
 // extractOutput 从节点输出中提取数据并保存到metadata
 func (p *PipelineImpl) extractOutput(ctx context.Context, node Node, stepResult *StepResult, fullOutput string) error {
 	// 获取节点配置
@@ -697,8 +942,29 @@ func (p *PipelineImpl) createExtractor(extractConfig interface{}) (OutputExtract
 		return nil, nil
 	}
 
-	configMap, ok := extractConfig.(map[string]interface{})
-	if !ok {
+	var configMap map[string]interface{}
+
+	// 尝试解析为 map[string]interface{}
+	if m, ok := extractConfig.(map[string]interface{}); ok {
+		configMap = m
+	} else if extractPtr, ok := extractConfig.(*ExtractConfig); ok && extractPtr != nil {
+		// 转换 *ExtractConfig 到 map[string]interface{}
+		configMap = make(map[string]interface{})
+		if extractPtr.Type != "" {
+			configMap["type"] = extractPtr.Type
+		}
+		if extractPtr.Patterns != nil {
+			// 将 Patterns 转换为 map[string]interface{}
+			patternsMap := make(map[string]interface{})
+			for k, v := range extractPtr.Patterns {
+				patternsMap[k] = v
+			}
+			configMap["patterns"] = patternsMap
+		}
+		if extractPtr.MaxOutputSize > 0 {
+			configMap["maxOutputSize"] = extractPtr.MaxOutputSize
+		}
+	} else {
 		return nil, fmt.Errorf("invalid extract config format")
 	}
 

@@ -338,6 +338,27 @@ func (l *LocalExecutor) GetShell() string {
 	return l.shell
 }
 
+// GetRuntimeInfo 获取运行时信息
+func (l *LocalExecutor) GetRuntimeInfo() map[string]any {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return map[string]any{
+		"workdir": l.workdir,
+		"shell":   l.shell,
+	}
+}
+
+// GetInstanceId 获取实例ID（本地执行器没有持久化的实例，返回空）
+func (l *LocalExecutor) GetInstanceId() string {
+	// Local executor 没有持久化的实例，返回空
+	return ""
+}
+
+// GetType 获取executor类型
+func (l *LocalExecutor) GetType() string {
+	return "local"
+}
+
 // detectDefaultShell 检测系统默认shell
 func detectDefaultShell() string {
 	switch runtime.GOOS {
@@ -365,5 +386,6 @@ func isShellAvailable(shell string) bool {
 	return err == nil
 }
 
-// 确保LocalExecutor实现了Executor接口
+// 确保LocalExecutor实现了Executor接口和ExecutorInfoProvider接口
 var _ executor.Executor = (*LocalExecutor)(nil)
+var _ executor.ExecutorInfoProvider = (*LocalExecutor)(nil)

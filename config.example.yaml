@@ -5,10 +5,21 @@ Metadate:
   type: in-config
   description: "用于存储构建过程中的元数据，如构建ID、版本号、测试覆盖率等，供后续节点使用"
   data:
-    # 支持模板渲染，可以引用 Param 中定义的变量
-    # 例如：namespace: "{{ Param.appName }}-{{ Param.env }}"
-    key1: value1
-    key2: value2
+    # 引用 Param 中的值（模板渲染）
+    K8sNamespace: "{{ Param.namespace }}"                    # 渲染为: myapp-production
+    ImagePrefix: "{{ Param.imageName }}"                     # 渲染为: myregistry.com/myapp
+    DeployTag: "{{ Param.imageTag }}"                        # 渲染为: 1.2.3-build-12345
+
+    # 组合多个 Param
+    DeploymentName: "{{ Param.appName }}-{{ Param.env }}"    # 渲染为: myapp-production
+    FullRegistryPath: "{{ Param.fullImage }}"               # 渲染为: myregistry.com/myapp:1.2.3-build-12345
+
+    # 静态值（不被渲染）
+    StaticValue: "this-is-static"
+
+    # 从输出提取的数据（实际使用中由 extract 机制填充）
+    coverage: "85.5"
+    testsPassed: "42"
 
 AI:
   # 核心：一句话描述意图，用于理解上下文
@@ -28,19 +39,47 @@ AI:
   version: 1
 
 Param:
-  # 构建ID，用于镜像标签和版本追踪
-  # 支持模板渲染和自引用，例如：buildId: "build-{{ Param.timestamp }}"
-  buildId: "2323"
+  # 基础变量
+  env: "production"
+  appName: "myapp"
+  version: "1.2.3"
 
-  # K8s 命名空间，目标部署环境
-  # 可以在其他 Param 中引用：fullName: "myapp-{{ Param.namespace }}"
-  namespace: "production"
+  # 构建ID，用于镜像标签和版本追踪
+  # 支持模板渲染和自引用
+  buildId: "build-12345"
+
+  # K8s 命名空间，使用模板拼接
+  # 在其他 Param 中引用：{{ Param.appName }}-{{ Param.env }}
+  namespace: "{{ Param.appName }}-{{ Param.env }}"           # 渲染为: myapp-production
 
   # 镜像仓库地址，用于推送和拉取镜像
   registry: "myregistry.com"
 
   # Git 分支，代码来源
   branch: "main"
+
+  # 使用模板拼接：镜像名称（引用 registry 和 appName）
+  imageName: "{{ Param.registry }}/{{ Param.appName }}"     # 渲染为: myregistry.com/myapp
+
+  # 镜像标签（引用 version 和 buildId）
+  imageTag: "{{ Param.version }}-{{ Param.buildId }}"       # 渲染为: 1.2.3-build-12345
+
+  # 完整镜像路径（多层引用）
+  fullImage: "{{ Param.imageName }}:{{ Param.imageTag }}"   # 渲染为: myregistry.com/myapp:1.2.3-build-12345
+
+  # 嵌套结构示例
+  config:
+    replicas: 3
+    envVars:
+      - name: "ENVIRONMENT"
+        value: "{{ Param.env }}"                            # 渲染为: production
+      - name: "APP_VERSION"
+        value: "{{ Param.version }}"                        # 渲染为: 1.2.3
+
+  # 列表结构示例
+  domains:
+    - "{{ Param.appName }}.example.com"                     # 渲染为: myapp.example.com
+    - "api.{{ Param.appName }}.com"                         # 渲染为: api.myapp.com
 
 # 全局执行器定义
 Executors:
@@ -100,28 +139,45 @@ Graph: |
     Test --> Deploy
     Deploy --> [*]
 
-# 运行时状态
-Status:
-  Merge: Finished
-  Build: Running
-  Test: Pending
-  Deploy: Pending
-
 # 节点配置
 Nodes:
   Merge:
+    id: "a1b2c3d4e5f67890a1b2c3d4e5f67890"
     name: "代码合并"
     description: "从Git仓库拉取代码并合并到主分支，确保代码最新"
     executor: local
     steps:
-      - name: checkout
+      - id: "f6e5d4c3b2a10987f6e5d4c3b2a10987"
+        name: checkout
         description: "检出指定分支"
         run: git checkout ${Param.branch}
-      - name: merge
+      - id: "e5d4c3b2a10987f6e5d4c3b2a10987f6"
+        name: merge
         description: "合并release分支"
         run: git merge origin/release
+    runtime:
+      id: "a1b2c3d4e5f67890a1b2c3d4e5f67890"
+      status: "SUCCESS"
+      startTime: "2024-01-15T10:30:00Z"
+      endTime: "2024-01-15T10:30:15Z"
+      steps:
+        - id: "f6e5d4c3b2a10987f6e5d4c3b2a10987"
+          name: "checkout"
+          status: "SUCCESS"
+          startTime: "2024-01-15T10:30:00Z"
+          endTime: "2024-01-15T10:30:10Z"
+        - id: "e5d4c3b2a10987f6e5d4c3b2a10987f6"
+          name: "merge"
+          status: "SUCCESS"
+          startTime: "2024-01-15T10:30:10Z"
+          endTime: "2024-01-15T10:30:15Z"
+      executor:
+        type: "local"
+        instanceId: ""
+        status: "DESTROYED"
 
   Build:
+    id: "b2c3d4e5f67890a1b2c3d4e5f67890a1"
     name: "构建应用"
     description: "编译Go应用并构建Docker镜像，使用多阶段构建优化镜像大小"
     executor: docker
@@ -129,18 +185,39 @@ Nodes:
     extract:
       type: codec-block
     steps:
-      - name: build
+      - id: "d4c3b2a10987f6e5d4c3b2a10987f6e5"
+        name: build
         description: "编译Go二进制文件，禁用CGO确保可移植性"
         run: |
           go build -o app .
           echo '```pipelinex-json'
           echo '{"buildId": "'${Param.buildId}'", "binary": "app", "status": "success"}'
           echo '```'
-      - name: image
-        description: "构建Docker镜像并打标签"
-        run: docker build -t ${Param.registry}/app:${Param.buildId} .
+      - id: "c3b2a10987f6e5d4c3b2a10987f6e5d4"
+        name: image
+        description: "构建Docker镜像并打标签（使用渲染后的参数）"
+        run: docker build -t ${Param.fullImage} .     # 使用: myregistry.com/myapp:1.2.3-build-12345
+      - id: "b2a10987f6e5d4c3b2a10987f6e5d4c3"
+        name: show-config
+        description: "展示渲染后的配置信息"
+        run: |
+          echo "Building image: ${Param.fullImage}"
+          echo "Target namespace: ${Param.namespace}"
+          echo "App domains: ${Param.domains}"
+    runtime:
+      id: "b2c3d4e5f67890a1b2c3d4e5f67890a1"
+      status: "RUNNING"
+      startTime: "2024-01-15T10:30:15Z"
+      executor:
+        type: "docker"
+        instanceId: "abc123containerid..."
+        status: "RUNNING"
+        info:
+          containerId: "abc123containerid..."
+          image: "golang:1.21-alpine"
 
   Test:
+    id: "c3d4e5f67890a1b2c3d4e5f67890a1b2"
     name: "单元测试"
     description: "运行Go单元测试并收集覆盖率数据，必须达到80%覆盖率"
     executor: docker
@@ -151,23 +228,36 @@ Nodes:
         coverage: "coverage: (\\d+\\.\\d+)%"
         testsPassed: "(\\d+) tests passed"
     steps:
-      - name: test
+      - id: "a10987f6e5d4c3b2a10987f6e5d4c3b2"
+        name: test
         description: "执行测试并输出覆盖率"
         run: |
           go test -cover ./... | tee test-output.log
           echo "Tests completed. Check test-output.log for details"
+    # 没有 runtime 字段，表示未执行
 
   Deploy:
+    id: "d4e5f67890a1b2c3d4e5f67890a1b2c3"
     name: "部署到K8s"
     description: "将应用部署到Kubernetes集群，并验证部署状态"
     executor: k8s
     image: bitnami/kubectl:latest
     steps:
-      - name: apply
+      - id: "987f6e5d4c3b2a10987f6e5d4c3b2a10"
+        name: apply
         description: "应用K8s资源配置"
         run: kubectl apply -f ./k8s/
-      - name: verify
+      - id: "87f6e5d4c3b2a10987f6e5d4c3b2a109"
+        name: verify
         description: "等待滚动更新完成并验证"
         run: |
           kubectl rollout status deployment/app -n ${Param.namespace}
           echo "Deployment completed successfully"
+      - id: "7f6e5d4c3b2a10987f6e5d4c3b2a1098"
+        name: show-deployment-info
+        description: "展示部署信息（使用 Metadate 中的渲染值）"
+        run: |
+          echo "Deployed ${Param.fullImage} to ${Param.namespace}"
+          echo "Deployment name: ${Param.DeploymentName}"
+          echo "Config replicas: ${Param.config.replicas}"
+    # 没有 runtime 字段，表示未执行

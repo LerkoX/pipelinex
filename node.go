@@ -19,4 +19,12 @@ type Node interface {
 	GetImage() string
 	// GetConfig 获取节点配置
 	GetConfig() map[string]any
+	// 运行时状态管理
+	GetRuntimeStatus() *NodeRuntimeStatus
+	SetRuntimeStatus(status *NodeRuntimeStatus)
+	// 步骤状态管理
+	GetStepRuntimeStatus(stepName string) *StepRuntimeStatus
+	SetStepRuntimeStatus(stepStatus *StepRuntimeStatus)
+	// 初始化ID
+	EnsureIds()
 }

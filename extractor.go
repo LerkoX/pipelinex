@@ -36,10 +36,10 @@ func NewCodecBlockExtractor(maxSize int) *CodecBlockExtractor {
 func (e *CodecBlockExtractor) Extract(output string) (map[string]interface{}, error) {
 	result := make(map[string]interface{})
 
-	// 检查输出大小限制
+	// 检查输出大小限制 - 截取末尾内容
 	if len(output) > e.maxSize {
-		output = output[:e.maxSize]
-		fmt.Printf("Warning: Output truncated to %d bytes due to size limit\n", e.maxSize)
+		output = output[len(output)-e.maxSize:]
+		fmt.Printf("Warning: Output truncated to %d bytes (showing last %d bytes) due to size limit\n", len(output), e.maxSize)
 	}
 
 	// 查找 JSON 代码块
@@ -110,10 +110,10 @@ func NewRegexExtractor(patterns map[string]string, maxSize int) (*RegexExtractor
 func (e *RegexExtractor) Extract(output string) (map[string]interface{}, error) {
 	result := make(map[string]interface{})
 
-	// 检查输出大小限制
+	// 检查输出大小限制 - 截取末尾内容
 	if len(output) > e.maxSize {
-		output = output[:e.maxSize]
-		fmt.Printf("Warning: Output truncated to %d bytes due to size limit\n", e.maxSize)
+		output = output[len(output)-e.maxSize:]
+		fmt.Printf("Warning: Output truncated to %d bytes (showing last %d bytes) due to size limit\n", len(output), e.maxSize)
 	}
 
 	// 遍历所有正则表达式模式

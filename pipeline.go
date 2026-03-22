@@ -81,4 +81,8 @@ type Pipeline interface {
 	Cancel()
 	//SetExecutorProvider 设置Executor提供者
 	SetExecutorProvider(provider ExecutorProvider)
+	//SetTemplateEngine 设置模板引擎
+	SetTemplateEngine(engine TemplateEngine)
+	//GetTemplateEngine 获取模板引擎
+	GetTemplateEngine() TemplateEngine
 }

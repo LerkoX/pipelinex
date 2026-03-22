@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 )
@@ -43,7 +44,7 @@ func TestRuntimeImpl_RunSync(t *testing.T) {
 	// Prepare test configuration with new format
 	config := `
 Param:
-  test-param: "test-value"
+  testParam: "test-value"
 Executors:
   local:
     type: local
@@ -94,7 +95,7 @@ func TestRuntimeImpl_RunSync_InvalidConfig(t *testing.T) {
 	// Prepare invalid configuration
 	invalidConfig := `
 invalid: yaml: content
-  test-param: "test-value"
+  testParam: "test-value"
   missing: closing: brace
 `
 
@@ -112,7 +113,7 @@ func TestRuntimeImpl_RunSync_DuplicateID(t *testing.T) {
 	// Prepare test configuration with new format
 	config := `
 Param:
-  test-param: "test-value"
+  testParam: "test-value"
 Executors:
   local:
     type: local
@@ -150,7 +151,7 @@ func TestRuntimeImpl_RunAsync(t *testing.T) {
 	// Prepare test configuration with new format
 	config := `
 Param:
-  test-param: "test-value"
+  testParam: "test-value"
 Executors:
   local:
     type: local
@@ -207,7 +208,7 @@ func TestRuntimeImpl_Cancel(t *testing.T) {
 	// Prepare test configuration with new format - use sleep to ensure pipeline is running
 	config := `
 Param:
-  test-param: "test-value"
+  testParam: "test-value"
 Executors:
   local:
     type: local
@@ -371,7 +372,7 @@ func TestRuntimeImpl_ConcurrentAccess(t *testing.T) {
 	// Prepare test configuration with new format
 	configTemplate := `
 Param:
-  test-param: "test-value"
+  testParam: "test-value"
 Executors:
   local:
     type: local
@@ -422,6 +423,56 @@ func (l *TestListener) Events() []Event {
 		PipelineNodeStart,
 		PipelineNodeFinish,
 	}
+}
+
+// RecordingListener 记录所有事件的监听器
+type RecordingListener struct {
+	mu     sync.Mutex
+	events []Event
+}
+
+func NewRecordingListener() *RecordingListener {
+	return &RecordingListener{
+		events: make([]Event, 0),
+	}
+}
+
+func (l *RecordingListener) Handle(p Pipeline, event Event) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.events = append(l.events, event)
+}
+
+func (l *RecordingListener) Events() []Event {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return []Event{
+		PipelineInit,
+		PipelineStart,
+		PipelineFinish,
+		PipelineNodeStart,
+		PipelineNodeFinish,
+	}
+}
+
+func (l *RecordingListener) GetRecordedEvents() []Event {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	result := make([]Event, len(l.events))
+	copy(result, l.events)
+	return result
+}
+
+func (l *RecordingListener) Count(eventType Event) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	count := 0
+	for _, e := range l.events {
+		if e == eventType {
+			count++
+		}
+	}
+	return count
 }
 
 // TestParseGraphEdges_BasicStateDiagram 测试基本状态图解析
@@ -747,7 +798,7 @@ Nodes:
         run: "echo 'test'"
 `
 
-	pipeline, err := runtime.RunSync(ctx, "test-param-self-ref", config, nil)
+	pipeline, err := runtime.RunSync(ctx, "testParam-self-ref", config, nil)
 	if err != nil {
 		t.Fatalf("RunSync failed: %v", err)
 	}
@@ -800,7 +851,7 @@ Nodes:
         run: "echo 'task1'"
 `
 
-	_, err := runtime.RunSync(ctx, "test-param-circular", config, nil)
+	_, err := runtime.RunSync(ctx, "testParam-circular", config, nil)
 	// 注意：实际实现中可能无法检测所有形式的循环引用
 	// 这里我们主要测试渲染不会导致程序崩溃
 	if err != nil {
@@ -839,7 +890,7 @@ Nodes:
     executor: local
     steps:
       - name: step1
-        run: "echo 'ns={{ .K8sNamespace }}, prefix={{ .ImagePrefix }}'"
+        run: "echo 'ns={{ K8sNamespace }}, prefix={{ ImagePrefix }}'"
 `
 
 	pipeline, err := runtime.RunSync(ctx, "test-metadata-ref-param", config, nil)
@@ -900,7 +951,7 @@ Nodes:
         run: "echo 'task1'"
 `
 
-	pipeline, err := runtime.RunSync(ctx, "test-param-nested", config, nil)
+	pipeline, err := runtime.RunSync(ctx, "testParam-nested", config, nil)
 	if err != nil {
 		t.Fatalf("RunSync failed: %v", err)
 	}
@@ -937,7 +988,7 @@ Nodes:
 `
 
 	// version未定义，应该保持模板字符串原样
-	pipeline, err := runtime.RunSync(ctx, "test-param-undefined", config, nil)
+	pipeline, err := runtime.RunSync(ctx, "testParam-undefined", config, nil)
 	if err != nil {
 		t.Fatalf("RunSync should not fail with undefined variables: %v", err)
 	}
@@ -1018,5 +1069,329 @@ func TestRenderValue_NestedStructures(t *testing.T) {
 			}
 		})
 	}
+}
+
+
+// TestComprehensivePipelineExecution 综合测试流水线的主要功能
+func TestComprehensivePipelineExecution(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx)
+
+	t.Run("同步执行流水线", func(t *testing.T) {
+		listener := NewRecordingListener()
+		config := `
+Param:
+  env: "production"
+  appName: "test-app"
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Metadate:
+  type: in-config
+  data:
+    deployEnv: "{{ Param.env }}"
+    appName: "{{ Param.appName }}"
+Graph: |
+  stateDiagram-v2
+    [*] --> Task1
+    Task1 --> Task2
+Nodes:
+  Task1:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'Task1 executed'"
+  Task2:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'Task2 executed'"
+`
+		pipeline, err := runtime.RunSync(ctx, "comprehensive-sync", config, listener)
+		if err != nil {
+			t.Fatalf("RunSync failed: %v", err)
+		}
+		if pipeline == nil {
+			t.Fatal("Pipeline should not be nil")
+		}
+
+		// 验证事件
+		if listener.Count(PipelineStart) == 0 {
+			t.Error("Expected PipelineStart event")
+		}
+		if listener.Count(PipelineFinish) == 0 {
+			t.Error("Expected PipelineFinish event")
+		}
+		if listener.Count(PipelineNodeStart) < 2 {
+			t.Error("Expected at least 2 PipelineNodeStart events")
+		}
+		if listener.Count(PipelineNodeFinish) < 2 {
+			t.Error("Expected at least 2 PipelineNodeFinish events")
+		}
+	})
+
+	t.Run("异步执行流水线", func(t *testing.T) {
+		listener := NewRecordingListener()
+		config := `
+Param:
+  env: "development"
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Task1
+Nodes:
+  Task1:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'Async task'"
+`
+		pipeline, err := runtime.RunAsync(ctx, "comprehensive-async", config, listener)
+		if err != nil {
+			t.Fatalf("RunAsync failed: %v", err)
+		}
+		if pipeline == nil {
+			t.Fatal("Pipeline should not be nil")
+		}
+
+		// 验证流水线存储在runtime中
+		_, err = runtime.Get("comprehensive-async")
+		if err != nil {
+			t.Fatal("Pipeline should be stored in runtime")
+		}
+
+		// 等待异步执行完成
+		select {
+		case <-pipeline.Done():
+			// 执行完成
+		case <-time.After(5 * time.Second):
+			// 超时时取消流水线
+			runtime.Cancel(ctx, "comprehensive-async")
+		}
+
+		// 验证事件
+		if listener.Count(PipelineStart) == 0 {
+			t.Error("Expected PipelineStart event")
+		}
+		if listener.Count(PipelineFinish) == 0 {
+			t.Error("Expected PipelineFinish event")
+		}
+	})
+
+	t.Run("Param模板渲染", func(t *testing.T) {
+		config := `
+Param:
+  buildId: "12345"
+  imageName: "myapp-{{ Param.buildId }}"
+  fullTag: "{{ Param.imageName }}:latest"
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Task1
+Nodes:
+  Task1:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo '{{ Param.fullTag }}'"
+`
+		pipeline, err := runtime.RunSync(ctx, "param-render-test", config, nil)
+		if err != nil {
+			t.Fatalf("RunSync failed: %v", err)
+		}
+		if pipeline == nil {
+			t.Fatal("Pipeline should not be nil")
+		}
+
+		// 验证graph存在
+		graph := pipeline.GetGraph()
+		if graph == nil {
+			t.Fatal("Graph should not be nil")
+		}
+		nodes := graph.Nodes()
+		if len(nodes) != 1 {
+			t.Fatalf("Expected 1 node, got %d", len(nodes))
+		}
+	})
+
+	t.Run("Metadata创建和渲染", func(t *testing.T) {
+		config := `
+Param:
+  namespace: "default"
+  cluster: "prod-cluster"
+
+Metadate:
+  type: in-config
+  data:
+    K8sNamespace: "{{ Param.namespace }}"
+    ClusterName: "{{ Param.cluster }}"
+    DeployTarget: "{{ Param.cluster }}/{{ Param.namespace }}"
+
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Task1
+Nodes:
+  Task1:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'Deploy'"
+`
+		pipeline, err := runtime.RunSync(ctx, "metadata-test", config, nil)
+		if err != nil {
+			t.Fatalf("RunSync failed: %v", err)
+		}
+		if pipeline == nil {
+			t.Fatal("Pipeline should not be nil")
+		}
+
+		// 验证metadata值
+		metadata := pipeline.Metadata()
+		if metadata == nil {
+			t.Fatal("Metadata should not be nil")
+		}
+
+		if ns, ok := metadata["K8sNamespace"].(string); !ok || ns != "default" {
+			t.Errorf("Expected K8sNamespace='default', got %v", ns)
+		}
+
+		if cluster, ok := metadata["ClusterName"].(string); !ok || cluster != "prod-cluster" {
+			t.Errorf("Expected ClusterName='prod-cluster', got %v", cluster)
+		}
+
+		if target, ok := metadata["DeployTarget"].(string); !ok || target != "prod-cluster/default" {
+			t.Errorf("Expected DeployTarget='prod-cluster/default', got %v", target)
+		}
+	})
+
+	t.Run("多节点DAG执行", func(t *testing.T) {
+		listener := NewRecordingListener()
+		config := `
+Param:
+  env: "test"
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Setup
+    Setup --> Build
+    Setup --> Test
+    Build --> Deploy
+    Test --> Deploy
+    Deploy --> [*]
+Nodes:
+  Setup:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'Setup'"
+  Build:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'Build'"
+  Test:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'Test'"
+  Deploy:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'Deploy'"
+`
+		pipeline, err := runtime.RunSync(ctx, "dag-test", config, listener)
+		if err != nil {
+			t.Fatalf("RunSync failed: %v", err)
+		}
+		if pipeline == nil {
+			t.Fatal("Pipeline should not be nil")
+		}
+
+		// 验证所有节点都执行了
+		graph := pipeline.GetGraph()
+		nodes := graph.Nodes()
+		if len(nodes) != 4 {
+			t.Fatalf("Expected 4 nodes, got %d", len(nodes))
+		}
+
+		// 验证事件
+		if listener.Count(PipelineNodeStart) != 4 {
+			t.Errorf("Expected 4 PipelineNodeStart events, got %d", listener.Count(PipelineNodeStart))
+		}
+		if listener.Count(PipelineNodeFinish) != 4 {
+			t.Errorf("Expected 4 PipelineNodeFinish events, got %d", listener.Count(PipelineNodeFinish))
+		}
+	})
+
+	t.Run("并行执行", func(t *testing.T) {
+		configTemplate := `
+Param:
+  pipelineId: "%d"
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Task1
+Nodes:
+  Task1:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'Pipeline %d'"
+`
+		numPipelines := 5
+		var wg sync.WaitGroup
+		errors := make(chan error, numPipelines)
+
+		for i := 0; i < numPipelines; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				pipelineConfig := fmt.Sprintf(configTemplate, id, id)
+				_, err := runtime.RunAsync(ctx, fmt.Sprintf("parallel-pipeline-%d", id), pipelineConfig, nil)
+				if err != nil {
+					errors <- err
+				}
+			}(i)
+		}
+
+		wg.Wait()
+		close(errors)
+
+		for err := range errors {
+			t.Errorf("Parallel pipeline failed: %v", err)
+		}
+
+		for i := 0; i < numPipelines; i++ {
+			pipelineId := fmt.Sprintf("parallel-pipeline-%d", i)
+			_, err := runtime.Get(pipelineId)
+			if err != nil {
+				t.Errorf("Pipeline %s should be stored: %v", pipelineId, err)
+			}
+		}
+	})
 }
 

@@ -22,6 +22,23 @@ type Executor interface {
 	Transfer(ctx context.Context, resultChan chan<- any, commandChan <-chan any)
 }
 
+// ExecutorInfoProvider 用于获取 executor 运行时信息
+type ExecutorInfoProvider interface {
+	// GetRuntimeInfo 获取executor特定的运行时信息
+	GetRuntimeInfo() map[string]any
+	// GetInstanceId 获取executor实例ID (容器ID/Pod名称等)
+	GetInstanceId() string
+	// GetType 获取executor类型
+	GetType() string
+}
+
+// ExecutorStatus 定义executor状态常量
+const (
+	ExecutorStatusPrepared  = "PREPARED"
+	ExecutorStatusRunning   = "RUNNING"
+	ExecutorStatusDestroyed = "DESTROYED"
+)
+
 // Adapter 适配器接口
 type Adapter interface {
 	// Config 适配器配置
