@@ -1,5 +1,99 @@
 # 更新日志
 
+## [Unreleased] - 2026-03-22
+
+本版本新增了 Pipeline 运行时状态持久化、控制台日志推送等功能，增强了 Metadata 的线程安全性，并大幅提升了测试覆盖率。
+
+### 新增功能
+
+#### 1. Pipeline 运行时状态持久化
+- 新增 `snapshot.go` - 状态快照和深拷贝实现
+- 集成 ExecutorInfoProvider 运行时信息追踪
+- 在 executeNode 中捕获 executor 类型、实例ID、运行时信息
+- 更新节点和步骤的运行时状态（开始/结束时间、状态）
+- 完善 Snapshotter 深拷贝实现，修复 Steps、Executor.Info、Custom 字段的浅拷贝问题
+- 新增 `uuid.go` - UUID 生成工具
+
+#### 2. 控制台日志推送
+- 新增 `logger/console_pusher.go` - 控制台日志推送实现
+- 新增 `logger/README.md` - 日志模块文档
+- 新增 `bin/main.go` - 可执行程序入口
+- 新增 `bin/config.yaml` - 可执行程序配置示例
+- 新增 `bin/README.md` - 可执行程序使用文档
+- 支持 Runtime 设置日志推送配置
+- 移动 `logger.go` → `logger/logger.go`，模块化日志接口
+
+#### 3. Metadata 增强
+- 实现本地线程安全的 metadata 操作
+- 完善 metadata 渲染功能
+- 支持 metadata 在 pipeline 执行过程中安全传递
+- 新增 `pipeline_metadata_test.go` - metadata 功能测试（+155 行）
+
+#### 4. 执行器信息增强
+- Docker 执行器添加运行时信息追踪（+27 行）
+- Kubernetes 执行器添加运行时信息追踪（+27 行）
+- Local 执行器添加运行时信息追踪（+26 行）
+- 新增 `executor/interfaces.go` - ExecutorInfoProvider 接口
+
+#### 5. 可执行程序支持
+- 添加 `bin/main.go` - 命令行可执行程序
+- 添加 `bin/config.yaml` - 可执行程序配置
+- 添加 `bin/README.md` - 使用文档
+- 更新依赖 go.mod/go.sum
+
+### 改进与优化
+
+#### 1. 配置增强
+- 更新 `config.example.yaml` - 添加状态持久化配置（+140 行）
+- 新增 Status 配置段，支持节点运行时状态持久化
+- 完善配置解析和验证逻辑（+38 行）
+
+#### 2. 代码质量
+- **pipeline_impl.go** - 大幅优化执行逻辑（+368 行）
+- **runtime_impl.go** - 完善运行时实现（+150 行）
+- **node_impl.go** - 增强节点功能（+82 行）
+- 修复拼写错误：`templete*.go` → `template*.go`
+- 优化错误处理和并发控制
+
+#### 3. 测试覆盖
+- **runtime_test.go** - 新增大量基准单元测试（+397 行）
+- 全面测试 pipeline 执行流程
+- 测试并发执行和状态管理
+- 测试错误处理和边界情况
+- 所有测试用例通过
+
+### 测试覆盖
+
+- 新增 `pipeline_metadata_test.go` - Metadata 功能测试（+155 行）
+- 增强 `runtime_test.go` - 基准单元测试（+397 行）
+- 所有测试用例通过
+
+### 文件变更统计
+
+- 新增文件：5 个（snapshot.go、uuid.go、logger/console_pusher.go、logger/README.md、bin/main.go 等）
+- 修改文件：31 个
+- 删除文件：1 个（config.template-render.example.yaml）
+- 总行数变化：+2,152 / -252
+
+### 完整提交记录
+
+```
+22d0b8a feat: 调试配置更i性能
+1472a02 feat: 基准调试测试
+bfd07a4 feat: 修复metadata传递问题
+045f95e feat: 所有的测试用例都通过
+b9dd201 feat: metadata本地线程安全和metadata渲染
+90ca8f4 feat: 修复卡住问题
+370c0e2 feat: 添加控制台日志推送
+85f9f93 feat: 添加图标和基准单元测试
+e1e542a feate: 优化代码
+b94d64d feat: 完成 Pipeline 运行时状态持久化功能并修复拼写错误
+eefde21 feat: 整合文件
+580d81b feat: 更新CHANGELOG.md
+```
+
+---
+
 ## [Unreleased] - 2026-03-15
 
 本版本新增了参数模板渲染功能，支持在 Metadata 中引用 Param，并大幅更新了文档。
