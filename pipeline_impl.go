@@ -567,8 +567,17 @@ func (p *PipelineImpl) sendCommands(ctx context.Context, commandChan chan any, s
 		select {
 		case <-ctx.Done():
 			return
-		case commandChan <- step.Run:
+		default:
 		}
+
+		// 运行时渲染 step.Run，可以引用前面节点 extract 的数据
+		renderedRun, err := p.renderStringWithRuntimeContext(step.Run)
+		if err != nil {
+			fmt.Printf("Failed to render step %s: %v, using original command\n", step.Name, err)
+			renderedRun = step.Run // 渲染失败时使用原始命令
+		}
+
+		commandChan <- renderedRun
 	}
 }
 
@@ -839,8 +848,26 @@ func (p *PipelineImpl) buildRenderContext() map[string]any {
 	metadata := p.Metadata()
 	if metadata != nil {
 		ctx["Metadata"] = metadata
+		// 将平铺的 metadata 转换为嵌套结构
+		// 例如：Node1.value = "42", Node1.message = "hello"
+		// 转换为：Node1 = {"value": "42", "message": "hello"}
 		for k, v := range metadata {
-			ctx[k] = v
+			// 检查键名是否包含点（节点ID.键名）
+			if dotIdx := strings.LastIndex(k, "."); dotIdx > 0 {
+				nodeID := k[:dotIdx]
+				keyName := k[dotIdx+1:]
+				// 如果节点ID 的嵌套对象不存在，创建它
+				if _, exists := ctx[nodeID]; !exists {
+					ctx[nodeID] = make(map[string]any)
+				}
+				// 将键值添加到节点的嵌套对象中
+				if nodeObj, ok := ctx[nodeID].(map[string]any); ok {
+					nodeObj[keyName] = v
+				}
+			} else {
+				// 不包含点的键，直接添加
+				ctx[k] = v
+			}
 		}
 	}
 
@@ -915,8 +942,29 @@ func (p *PipelineImpl) createExtractor(extractConfig interface{}) (OutputExtract
 		return nil, nil
 	}
 
-	configMap, ok := extractConfig.(map[string]interface{})
-	if !ok {
+	var configMap map[string]interface{}
+
+	// 尝试解析为 map[string]interface{}
+	if m, ok := extractConfig.(map[string]interface{}); ok {
+		configMap = m
+	} else if extractPtr, ok := extractConfig.(*ExtractConfig); ok && extractPtr != nil {
+		// 转换 *ExtractConfig 到 map[string]interface{}
+		configMap = make(map[string]interface{})
+		if extractPtr.Type != "" {
+			configMap["type"] = extractPtr.Type
+		}
+		if extractPtr.Patterns != nil {
+			// 将 Patterns 转换为 map[string]interface{}
+			patternsMap := make(map[string]interface{})
+			for k, v := range extractPtr.Patterns {
+				patternsMap[k] = v
+			}
+			configMap["patterns"] = patternsMap
+		}
+		if extractPtr.MaxOutputSize > 0 {
+			configMap["maxOutputSize"] = extractPtr.MaxOutputSize
+		}
+	} else {
 		return nil, fmt.Errorf("invalid extract config format")
 	}
 

@@ -198,17 +198,9 @@ func (r *RuntimeImpl) renderConfig(config *PipelineConfig) error {
 		}
 	}
 
-	// 3. 渲染 Nodes 中所有步骤
-	for nodeName, nodeConfig := range config.Nodes {
-		for stepIdx := range nodeConfig.Steps {
-			renderedRun, err := r.templateEngine.EvaluateString(nodeConfig.Steps[stepIdx].Run, ctx)
-			if err != nil {
-				return fmt.Errorf("failed to render step run in node %s step %s: %w",
-					nodeName, nodeConfig.Steps[stepIdx].Name, err)
-			}
-			config.Nodes[nodeName].Steps[stepIdx].Run = renderedRun
-		}
-	}
+	// 注意：步骤的 run 命令不在配置阶段渲染，而是在运行时动态渲染
+	// 这样可以引用前面节点通过 extract 提取的数据
+	// 渲染逻辑移至 pipeline_impl.go 的 sendCommands 函数中
 
 	return nil
 }
@@ -505,13 +497,23 @@ func (r *RuntimeImpl) buildGraph(config *PipelineConfig) Graph {
 			}
 		}
 
+		// 构建节点配置，包含 extract 配置
+		nodeConfigMap := make(map[string]any)
+		for k, v := range nodeConfig.Config {
+			nodeConfigMap[k] = v
+		}
+		// 将 extract 配置添加到 config 中
+		if nodeConfig.Extract != nil {
+			nodeConfigMap["extract"] = nodeConfig.Extract
+		}
+
 		node := NewDGANodeWithConfig(
 			nodeName,
 			initialStatus,
 			nodeConfig.Executor,
 			nodeConfig.Image,
 			nodeConfig.Steps,
-			nodeConfig.Config,
+			nodeConfigMap,
 		)
 
 		// 恢复运行时状态
