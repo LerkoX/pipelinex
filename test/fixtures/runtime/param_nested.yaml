@@ -1,0 +1,25 @@
+Param:
+  prefix: "prod"
+  nested:
+    key1: "value-{{ Param.prefix }}"
+    key2:
+      - "item1-{{ Param.prefix }}"
+      - "item2-{{ Param.prefix }}"
+  list:
+    - "{{ Param.prefix }}-item1"
+    - "{{ Param.prefix }}-item2"
+
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Task1
+Nodes:
+  Task1:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'task1'"

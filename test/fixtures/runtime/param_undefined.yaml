@@ -1,0 +1,18 @@
+Param:
+  image: "myapp-{{ Param.version }}"
+  tag: "{{ Param.version }}-latest"
+
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Task1
+Nodes:
+  Task1:
+    executor: local
+    steps:
+      - name: step1
+        run: "echo 'image={{ Param.image }}'"

@@ -1,0 +1,3 @@
+invalid: yaml: content
+  testParam: "test-value"
+  missing: closing: brace

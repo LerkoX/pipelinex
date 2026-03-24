@@ -3,11 +3,32 @@ package pipelinex
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
 )
+
+// loadTestConfig 从 test/fixtures/runtime/ 目录加载测试配置
+func loadTestConfig(t *testing.T, filename string) string {
+	t.Helper()
+	data, err := os.ReadFile("test/fixtures/runtime/" + filename)
+	if err != nil {
+		t.Fatalf("Failed to load test config %s: %v", filename, err)
+	}
+	return string(data)
+}
+
+// loadTestConfigTemplate 加载配置模板并格式化
+func loadTestConfigTemplate(t *testing.T, filename string, args ...interface{}) string {
+	t.Helper()
+	data, err := os.ReadFile("test/fixtures/runtime/" + filename)
+	if err != nil {
+		t.Fatalf("Failed to load test config %s: %v", filename, err)
+	}
+	return fmt.Sprintf(string(data), args...)
+}
 
 // TestNewRuntime tests creating a new Runtime instance
 func TestNewRuntime(t *testing.T) {
@@ -42,30 +63,7 @@ func TestRuntimeImpl_RunSync(t *testing.T) {
 	runtime := NewRuntime(ctx)
 
 	// Prepare test configuration with new format
-	config := `
-Param:
-  testParam: "test-value"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-    Task1 --> Task2
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'task1'"
-  Task2:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'task2'"
-`
+	config := loadTestConfig(t, "sync_pipeline.yaml")
 
 	// Create test listener
 	listener := &TestListener{}
@@ -93,11 +91,7 @@ func TestRuntimeImpl_RunSync_InvalidConfig(t *testing.T) {
 	runtime := NewRuntime(ctx)
 
 	// Prepare invalid configuration
-	invalidConfig := `
-invalid: yaml: content
-  testParam: "test-value"
-  missing: closing: brace
-`
+	invalidConfig := loadTestConfig(t, "invalid_config.yaml")
 
 	_, err := runtime.RunSync(ctx, "test-invalid-config", invalidConfig, nil)
 	if err == nil {
@@ -111,24 +105,7 @@ func TestRuntimeImpl_RunSync_DuplicateID(t *testing.T) {
 	runtime := NewRuntime(ctx)
 
 	// Prepare test configuration with new format
-	config := `
-Param:
-  testParam: "test-value"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'task1'"
-`
+	config := loadTestConfig(t, "single_node.yaml")
 
 	// First execution
 	_, err := runtime.RunSync(ctx, "duplicate-id", config, nil)
@@ -149,24 +126,7 @@ func TestRuntimeImpl_RunAsync(t *testing.T) {
 	runtime := NewRuntime(ctx)
 
 	// Prepare test configuration with new format
-	config := `
-Param:
-  testParam: "test-value"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'task1'"
-`
+	config := loadTestConfig(t, "async_pipeline.yaml")
 
 	// Create test listener
 	listener := &TestListener{}
@@ -206,24 +166,7 @@ func TestRuntimeImpl_Cancel(t *testing.T) {
 	runtime := NewRuntime(ctx)
 
 	// Prepare test configuration with new format - use sleep to ensure pipeline is running
-	config := `
-Param:
-  testParam: "test-value"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "sleep 2"
-`
+	config := loadTestConfig(t, "long_running.yaml")
 
 	// Execute asynchronous pipeline
 	pipeline, err := runtime.RunAsync(ctx, "test-cancel-pipeline", config, nil)
@@ -369,32 +312,12 @@ func TestRuntimeImpl_ConcurrentAccess(t *testing.T) {
 	ctx := context.Background()
 	runtime := NewRuntime(ctx)
 
-	// Prepare test configuration with new format
-	configTemplate := `
-Param:
-  testParam: "test-value"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task%d
-Nodes:
-  Task%d:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'task%d'"
-`
-
 	// Concurrent test
 	done := make(chan bool, 10)
 	for i := 0; i < 10; i++ {
 		go func(id int) {
 			defer func() { done <- true }()
-			pipelineConfig := fmt.Sprintf(configTemplate, id, id, id)
+			pipelineConfig := loadTestConfigTemplate(t, "concurrent_template.yaml", id, id, id)
 			_, err := runtime.RunAsync(ctx, fmt.Sprintf("pipeline-%d", id), pipelineConfig, nil)
 			if err != nil {
 				t.Errorf("Concurrent RunAsync failed: %v", err)
@@ -777,26 +700,7 @@ func TestRuntimeImpl_RenderParam_SelfReference(t *testing.T) {
 	ctx := context.Background()
 	runtime := NewRuntime(ctx).(*RuntimeImpl)
 
-	config := `
-Param:
-  buildId: "2323"
-  imageName: "myapp-{{ Param.buildId }}"
-  fullImage: "{{ Param.imageName }}:latest"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'test'"
-`
+	config := loadTestConfig(t, "param_self_reference.yaml")
 
 	pipeline, err := runtime.RunSync(ctx, "testParam-self-ref", config, nil)
 	if err != nil {
@@ -830,26 +734,7 @@ func TestRuntimeImpl_RenderParam_CircularReference(t *testing.T) {
 	runtime := NewRuntime(ctx).(*RuntimeImpl)
 
 	// 测试一个简单的间接循环引用
-	config := `
-Param:
-  a: "{{ Param.b }}"
-  b: "{{ Param.c }}"
-  c: "{{ Param.a }}"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'task1'"
-`
+	config := loadTestConfig(t, "param_circular_reference.yaml")
 
 	_, err := runtime.RunSync(ctx, "testParam-circular", config, nil)
 	// 注意：实际实现中可能无法检测所有形式的循环引用
@@ -866,32 +751,7 @@ func TestRuntimeImpl_RenderMetadata_ReferenceParam(t *testing.T) {
 	ctx := context.Background()
 	runtime := NewRuntime(ctx).(*RuntimeImpl)
 
-	config := `
-Param:
-  env: "production"
-  namespace: "myapp"
-
-Metadate:
-  type: in-config
-  data:
-    K8sNamespace: "{{ Param.namespace }}-{{ Param.env }}"
-    ImagePrefix: "myregistry.com/{{ Param.namespace }}/"
-
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'ns={{ K8sNamespace }}, prefix={{ ImagePrefix }}'"
-`
+	config := loadTestConfig(t, "metadata_ref_param.yaml")
 
 	pipeline, err := runtime.RunSync(ctx, "test-metadata-ref-param", config, nil)
 	if err != nil {
@@ -923,33 +783,7 @@ func TestRuntimeImpl_RenderParam_NestedStructures(t *testing.T) {
 	ctx := context.Background()
 	runtime := NewRuntime(ctx).(*RuntimeImpl)
 
-	config := `
-Param:
-  prefix: "prod"
-  nested:
-    key1: "value-{{ Param.prefix }}"
-    key2:
-      - "item1-{{ Param.prefix }}"
-      - "item2-{{ Param.prefix }}"
-  list:
-    - "{{ Param.prefix }}-item1"
-    - "{{ Param.prefix }}-item2"
-
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'task1'"
-`
+	config := loadTestConfig(t, "param_nested.yaml")
 
 	pipeline, err := runtime.RunSync(ctx, "testParam-nested", config, nil)
 	if err != nil {
@@ -966,26 +800,7 @@ func TestRuntimeImpl_RenderParam_WithUndefinedVariable(t *testing.T) {
 	ctx := context.Background()
 	runtime := NewRuntime(ctx).(*RuntimeImpl)
 
-	config := `
-Param:
-  image: "myapp-{{ Param.version }}"
-  tag: "{{ Param.version }}-latest"
-
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'image={{ Param.image }}'"
-`
+	config := loadTestConfig(t, "param_undefined.yaml")
 
 	// version未定义，应该保持模板字符串原样
 	pipeline, err := runtime.RunSync(ctx, "testParam-undefined", config, nil)
@@ -1079,36 +894,7 @@ func TestComprehensivePipelineExecution(t *testing.T) {
 
 	t.Run("同步执行流水线", func(t *testing.T) {
 		listener := NewRecordingListener()
-		config := `
-Param:
-  env: "production"
-  appName: "test-app"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Metadate:
-  type: in-config
-  data:
-    deployEnv: "{{ Param.env }}"
-    appName: "{{ Param.appName }}"
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-    Task1 --> Task2
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Task1 executed'"
-  Task2:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Task2 executed'"
-`
+		config := loadTestConfig(t, "comprehensive_sync.yaml")
 		pipeline, err := runtime.RunSync(ctx, "comprehensive-sync", config, listener)
 		if err != nil {
 			t.Fatalf("RunSync failed: %v", err)
@@ -1134,24 +920,7 @@ Nodes:
 
 	t.Run("异步执行流水线", func(t *testing.T) {
 		listener := NewRecordingListener()
-		config := `
-Param:
-  env: "development"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Async task'"
-`
+		config := loadTestConfig(t, "comprehensive_async.yaml")
 		pipeline, err := runtime.RunAsync(ctx, "comprehensive-async", config, listener)
 		if err != nil {
 			t.Fatalf("RunAsync failed: %v", err)
@@ -1185,26 +954,7 @@ Nodes:
 	})
 
 	t.Run("Param模板渲染", func(t *testing.T) {
-		config := `
-Param:
-  buildId: "12345"
-  imageName: "myapp-{{ Param.buildId }}"
-  fullTag: "{{ Param.imageName }}:latest"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo '{{ Param.fullTag }}'"
-`
+		config := loadTestConfig(t, "comprehensive_param_render.yaml")
 		pipeline, err := runtime.RunSync(ctx, "param-render-test", config, nil)
 		if err != nil {
 			t.Fatalf("RunSync failed: %v", err)
@@ -1225,33 +975,7 @@ Nodes:
 	})
 
 	t.Run("Metadata创建和渲染", func(t *testing.T) {
-		config := `
-Param:
-  namespace: "default"
-  cluster: "prod-cluster"
-
-Metadate:
-  type: in-config
-  data:
-    K8sNamespace: "{{ Param.namespace }}"
-    ClusterName: "{{ Param.cluster }}"
-    DeployTarget: "{{ Param.cluster }}/{{ Param.namespace }}"
-
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Deploy'"
-`
+		config := loadTestConfig(t, "comprehensive_metadata.yaml")
 		pipeline, err := runtime.RunSync(ctx, "metadata-test", config, nil)
 		if err != nil {
 			t.Fatalf("RunSync failed: %v", err)
@@ -1281,44 +1005,7 @@ Nodes:
 
 	t.Run("多节点DAG执行", func(t *testing.T) {
 		listener := NewRecordingListener()
-		config := `
-Param:
-  env: "test"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Setup
-    Setup --> Build
-    Setup --> Test
-    Build --> Deploy
-    Test --> Deploy
-    Deploy --> [*]
-Nodes:
-  Setup:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Setup'"
-  Build:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Build'"
-  Test:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Test'"
-  Deploy:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Deploy'"
-`
+		config := loadTestConfig(t, "comprehensive_dag.yaml")
 		pipeline, err := runtime.RunSync(ctx, "dag-test", config, listener)
 		if err != nil {
 			t.Fatalf("RunSync failed: %v", err)
@@ -1344,24 +1031,6 @@ Nodes:
 	})
 
 	t.Run("并行执行", func(t *testing.T) {
-		configTemplate := `
-Param:
-  pipelineId: "%d"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Pipeline %d'"
-`
 		numPipelines := 5
 		var wg sync.WaitGroup
 		errors := make(chan error, numPipelines)
@@ -1370,7 +1039,7 @@ Nodes:
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
-				pipelineConfig := fmt.Sprintf(configTemplate, id, id)
+				pipelineConfig := loadTestConfigTemplate(t, "parallel_template.yaml", id, id)
 				_, err := runtime.RunAsync(ctx, fmt.Sprintf("parallel-pipeline-%d", id), pipelineConfig, nil)
 				if err != nil {
 					errors <- err
