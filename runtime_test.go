@@ -887,7 +887,162 @@ func TestRenderValue_NestedStructures(t *testing.T) {
 }
 
 
-// TestComprehensivePipelineExecution 综合测试流水线的主要功能
+// TestRuntimeImpl_NodeDataPassing 测试节点间数据传递
+func TestRuntimeImpl_NodeDataPassing(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx)
+
+	config := loadTestConfig(t, "node_data_passing.yaml")
+
+	listener := NewRecordingListener()
+	pipeline, err := runtime.RunSync(ctx, "node-data-passing", config, listener)
+	if err != nil {
+		t.Fatalf("RunSync failed: %v", err)
+	}
+
+	if pipeline == nil {
+		t.Fatal("Pipeline should not be nil")
+	}
+
+	// 验证所有节点都执行了
+	if listener.Count(PipelineNodeStart) != 3 {
+		t.Errorf("Expected 3 PipelineNodeStart events, got %d", listener.Count(PipelineNodeStart))
+	}
+	if listener.Count(PipelineNodeFinish) != 3 {
+		t.Errorf("Expected 3 PipelineNodeFinish events, got %d", listener.Count(PipelineNodeFinish))
+	}
+
+	// 验证 metadata 中包含提取的数据
+	metadata := pipeline.Metadata()
+	if metadata == nil {
+		t.Fatal("Metadata should not be nil")
+	}
+
+	// 检查是否成功提取了 Generate 节点的数据
+	// 注意：JSON 数字可能被解析为 float64，YAML 数字可能是 int
+	value, hasValue := metadata["Generate.value"]
+	if !hasValue {
+		t.Error("Expected Generate.value in metadata")
+	} else {
+		// 允许 42 (int) 或 42.0 (float64)
+		switch v := value.(type) {
+		case string:
+			if v != "42" {
+				t.Errorf("Expected Generate.value=42 (string), got %v (type: %T)", value, value)
+			}
+		case float64:
+			if v != 42.0 {
+				t.Errorf("Expected Generate.value=42.0 (float64), got %v", value)
+			}
+		case int:
+			if v != 42 {
+				t.Errorf("Expected Generate.value=42 (int), got %v", value)
+			}
+		default:
+			t.Errorf("Expected Generate.value=42, got %v (type: %T)", value, value)
+		}
+	}
+
+	if message, ok := metadata["Generate.message"]; !ok {
+		t.Error("Expected Generate.message in metadata")
+	} else if message != "hello world" {
+		t.Errorf("Expected Generate.message='hello world', got %v", message)
+	}
+}
+
+// TestRuntimeImpl_ParallelNodes 测试并行节点执行
+func TestRuntimeImpl_ParallelNodes(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx)
+
+	config := loadTestConfig(t, "parallel_nodes.yaml")
+
+	listener := NewRecordingListener()
+
+	startTime := time.Now()
+	pipeline, err := runtime.RunSync(ctx, "parallel-nodes", config, listener)
+	if err != nil {
+		t.Fatalf("RunSync failed: %v", err)
+	}
+
+	duration := time.Since(startTime)
+	t.Logf("Pipeline execution took: %v", duration)
+
+	if pipeline == nil {
+		t.Fatal("Pipeline should not be nil")
+	}
+
+	// 验证所有节点都执行了 (Start, TaskA, TaskB, TaskC, Merge = 5个节点)
+	if listener.Count(PipelineNodeStart) != 5 {
+		t.Errorf("Expected 5 PipelineNodeStart events, got %d", listener.Count(PipelineNodeStart))
+	}
+	if listener.Count(PipelineNodeFinish) != 5 {
+		t.Errorf("Expected 5 PipelineNodeFinish events, got %d", listener.Count(PipelineNodeFinish))
+	}
+
+	// 并行执行应该比串行执行快得多
+	// 每个并行任务 sleep 100ms，串行执行至少需要 300ms
+	// 并行执行应该接近 100ms（取最慢的）
+	if duration > 250*time.Millisecond {
+		t.Logf("Warning: Execution took %v, parallel execution may not be working optimally", duration)
+	}
+}
+
+// TestRuntimeImpl_RuntimeRecovery 测试运行时状态恢复
+func TestRuntimeImpl_RuntimeRecovery(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx)
+
+	config := loadTestConfig(t, "runtime_recovery.yaml")
+
+	listener := NewRecordingListener()
+	pipeline, err := runtime.RunSync(ctx, "runtime-recovery", config, listener)
+	if err != nil {
+		t.Fatalf("RunSync failed: %v", err)
+	}
+
+	if pipeline == nil {
+		t.Fatal("Pipeline should not be nil")
+	}
+
+	// 验证只有 Step2 和 Step3 执行了（Step1 被跳过）
+	// 因为 Step1 的状态是 SUCCESS，应该被跳过
+	// 被跳过的节点会触发 PipelineNodeFinish 但不会触发 PipelineNodeStart
+	expectedStartEvents := 2 // Step2 和 Step3
+	expectedFinishEvents := 3 // Step1 (跳过), Step2, Step3
+
+	if listener.Count(PipelineNodeStart) != expectedStartEvents {
+		t.Errorf("Expected %d PipelineNodeStart events, got %d (recovery may not be working)", expectedStartEvents, listener.Count(PipelineNodeStart))
+	}
+	if listener.Count(PipelineNodeFinish) != expectedFinishEvents {
+		t.Errorf("Expected %d PipelineNodeFinish events, got %d (recovery may not be working)", expectedFinishEvents, listener.Count(PipelineNodeFinish))
+	}
+
+	// 验证 pipeline 状态为成功
+	if pipeline.Status() != StatusSuccess {
+		t.Errorf("Expected pipeline status %s, got %s", StatusSuccess, pipeline.Status())
+	}
+
+	// 验证 Step1 的状态仍然为 SUCCESS
+	graph := pipeline.GetGraph()
+	if graph == nil {
+		t.Fatal("Graph should not be nil")
+	}
+
+	nodes := graph.Nodes()
+	step1, ok := nodes["Step1"]
+	if !ok {
+		t.Fatal("Step1 node should exist")
+	}
+
+	if step1.GetRuntimeStatus() == nil {
+		t.Error("Step1 should have runtime status")
+	} else if step1.GetRuntimeStatus().Status != StatusSuccess {
+		t.Errorf("Expected Step1 status %s, got %s", StatusSuccess, step1.GetRuntimeStatus().Status)
+	}
+}
+
+// TestComprehensivePipelineExecution 综合测试流水线线的主要功能
 func TestComprehensivePipelineExecution(t *testing.T) {
 	ctx := context.Background()
 	runtime := NewRuntime(ctx)
