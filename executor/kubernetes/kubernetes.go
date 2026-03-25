@@ -181,14 +181,14 @@ func (k *KubernetesExecutor) Transfer(ctx context.Context, resultChan chan<- any
 		default:
 		}
 
-		// 处理不同类型的数据
-		switch v := data.(type) {
-		case string:
-			// 执行命令（实时输出）
-			k.executeCommandStreaming(execCtx, v, resultChan)
-		default:
-			resultChan <- fmt.Errorf("unsupported data type: %T", data)
+		// 处理 commandWrapper 类型
+		cmdWrapper, ok := data.(executor.CommandWrapper)
+		if !ok {
+			resultChan <- fmt.Errorf("unsupported data type: %T, expected CommandWrapper", data)
+			continue
 		}
+		// 执行命令（携带步骤名称）
+		k.executeCommandStreaming(execCtx, cmdWrapper.Command, cmdWrapper.StepName, resultChan)
 	}
 }
 
@@ -299,7 +299,7 @@ func (k *KubernetesExecutor) waitForPodRunning(ctx context.Context) error {
 }
 
 // executeCommandStreaming 执行命令并实时流式输出
-func (k *KubernetesExecutor) executeCommandStreaming(ctx context.Context, command string, resultChan chan<- any) {
+func (k *KubernetesExecutor) executeCommandStreaming(ctx context.Context, command string, stepName string, resultChan chan<- any) {
 	startTime := time.Now()
 
 	err := k.executeCommandInPodStreaming(ctx, command, func(data []byte) {
@@ -308,6 +308,7 @@ func (k *KubernetesExecutor) executeCommandStreaming(ctx context.Context, comman
 
 	// 发送最终结果
 	resultChan <- &executor.StepResult{
+		StepName:   stepName,
 		Command:    command,
 		Output:     "",
 		Error:      err,

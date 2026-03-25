@@ -1,0 +1,60 @@
+Param:
+  env: "test"
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Task1
+    Task1 --> Task2
+    Task1 --> Task3
+    Task2 --> Merge
+    Task3 --> Merge
+    Merge --> [*]
+Nodes:
+  Task1:
+    executor: local
+    steps:
+      - name: prepare
+        run: "echo 'Preparing data...'"
+    extract:
+      type: codec-block
+  Task2:
+    executor: local
+    steps:
+      - name: init
+        run: "echo 'Task2 init'"
+      - name: process
+        run: "echo 'Task2 processing'"
+    runtime:
+      status: SUCCESS
+      steps:
+        - name: init
+          status: SUCCESS
+        - name: process
+          status: SUCCESS
+  Task3:
+    executor: local
+    steps:
+      - name: init
+        run: "echo 'Task3 init'"
+      - name: first-step
+        run: "echo 'Task3 first step'"
+      - name: second-step
+        run: "echo 'Task3 second step'"
+    runtime:
+      status: PENDING
+      steps:
+        - name: init
+          status: SUCCESS
+        - name: first-step
+          status: SUCCESS
+        - name: second-step
+          status: PENDING
+  Merge:
+    executor: local
+    steps:
+      - name: merge
+        run: "echo 'Merging all results'"

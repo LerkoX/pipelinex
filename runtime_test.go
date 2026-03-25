@@ -1042,6 +1042,101 @@ func TestRuntimeImpl_RuntimeRecovery(t *testing.T) {
 	}
 }
 
+// TestRuntimeImpl_ParallelStepRecovery 测试并行节点中的步骤级别恢复
+func TestRuntimeImpl_ParallelStepRecovery(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx)
+
+	config := loadTestConfig(t, "parallel_with_step_recovery.yaml")
+
+	listener := NewRecordingListener()
+	pipeline, err := runtime.RunSync(ctx, "parallel-step-recovery", config, listener)
+	if err != nil {
+		t.Fatalf("RunSync failed: %v", err)
+	}
+
+	if pipeline == nil {
+		t.Fatal("Pipeline should not be nil")
+	}
+
+	// 验证 Task1 执行了
+	// Task2 完全跳过（所有步骤都是 SUCCESS）
+	// Task3 只执行了 second-step（init 和 first-step 跳过）
+	// Merge 执行了
+	// 所以预期有 3 个 PipelineNodeStart 事件（Task1, Task3, Merge）
+	expectedStartEvents := 3
+	if listener.Count(PipelineNodeStart) != expectedStartEvents {
+		t.Errorf("Expected %d PipelineNodeStart events, got %d", expectedStartEvents, listener.Count(PipelineNodeStart))
+	}
+
+	// 验证 pipeline 状态为成功
+	if pipeline.Status() != StatusSuccess {
+		t.Errorf("Expected pipeline status %s, got %s", StatusSuccess, pipeline.Status())
+	}
+
+	// 验证 Task2 的所有步骤都是 SUCCESS
+	graph := pipeline.GetGraph()
+	if graph == nil {
+		t.Fatal("Graph should not be nil")
+	}
+
+	nodes := graph.Nodes()
+	task2, ok := nodes["Task2"]
+	if !ok {
+		t.Fatal("Task2 node should exist")
+	}
+
+	task2Runtime := task2.GetRuntimeStatus()
+	if task2Runtime == nil {
+		t.Fatal("Task2 should have runtime status")
+	}
+
+	if task2Runtime.Status != StatusSuccess {
+		t.Errorf("Expected Task2 status %s, got %s", StatusSuccess, task2Runtime.Status)
+	}
+
+	// 验证 Task2 的所有步骤都是 SUCCESS
+	for _, step := range task2Runtime.Steps {
+		if step.Status != StatusSuccess {
+			t.Errorf("Expected Task2 step %s status %s, got %s", step.Name, StatusSuccess, step.Status)
+		}
+	}
+
+	// 验证 Task3 的运行时状态
+	task3, ok := nodes["Task3"]
+	if !ok {
+		t.Fatal("Task3 node should exist")
+	}
+
+	task3Runtime := task3.GetRuntimeStatus()
+	if task3Runtime == nil {
+		t.Fatal("Task3 should have runtime status")
+	}
+
+	// Task3 应该是 SUCCESS（所有步骤都成功了）
+	if task3Runtime.Status != StatusSuccess {
+		t.Errorf("Expected Task3 status %s, got %s", StatusSuccess, task3Runtime.Status)
+	}
+
+	// 验证 Task3 的步骤状态
+	// init 和 first-step 应该是 SUCCESS
+	// second-step 应该是 SUCCESS（执行后）
+	expectedSteps := map[string]string{
+		"init":        StatusSuccess,
+		"first-step":  StatusSuccess,
+		"second-step": StatusSuccess,
+	}
+
+	for _, step := range task3Runtime.Steps {
+		expectedStatus, ok := expectedSteps[step.Name]
+		if !ok {
+			t.Errorf("Unexpected step %s in Task3", step.Name)
+		} else if step.Status != expectedStatus {
+			t.Errorf("Expected Task3 step %s status %s, got %s", step.Name, expectedStatus, step.Status)
+		}
+	}
+}
+
 // TestComprehensivePipelineExecution 综合测试流水线线的主要功能
 func TestComprehensivePipelineExecution(t *testing.T) {
 	ctx := context.Background()
