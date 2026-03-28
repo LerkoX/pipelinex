@@ -22,6 +22,7 @@ func (c *DGAEvaluationContext) Get(key string) (any, bool) {
 
 // All 返回上下文中所有数据的副本
 // 合并了：基础数据、节点数据、流水线数据
+// 将 "NodeID.key" 格式的扁平键转换为嵌套结构
 func (c *DGAEvaluationContext) All() map[string]any {
 	result := make(map[string]any)
 
@@ -52,15 +53,50 @@ func (c *DGAEvaluationContext) All() map[string]any {
 			}
 		}
 
-		// 添加 metadata
+		// 添加 metadata，并将 "NodeID.key" 格式转换为嵌套结构
 		if metadata := c.pipeline.Metadata(); metadata != nil {
 			for k, v := range metadata {
-				result[k] = v
+				// 检查键名是否包含点（节点ID.键名）
+				if dotIdx := lastIndexOfByte(k, '.'); dotIdx > 0 {
+					nodeID := k[:dotIdx]
+					keyName := k[dotIdx+1:]
+					// 如果节点ID 的嵌套对象不存在，创建它
+					if _, exists := result[nodeID]; !exists {
+						result[nodeID] = make(map[string]any)
+					}
+					// 将键值添加到节点的嵌套对象中
+					if nodeObj, ok := result[nodeID].(map[string]any); ok {
+						nodeObj[keyName] = v
+					}
+				} else {
+					// 不包含点的键，直接添加
+					result[k] = v
+				}
 			}
 		}
 	}
 
 	return result
+}
+
+// lastIndexOf 返回字符串中最后一个点的索引
+func lastIndexOf(s string, substr string) int {
+	for i := len(s) - len(substr); i >= 0; i-- {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}
+
+// lastIndexOfByte 返回字符串中最后一个指定字节的索引
+func lastIndexOfByte(s string, c byte) int {
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
 }
 
 // WithNode 设置当前节点并返回新的上下文（链式调用）

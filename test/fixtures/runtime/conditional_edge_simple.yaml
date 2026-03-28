@@ -1,0 +1,30 @@
+Param:
+  mode: "production"
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Check
+    Check --> Deploy: {{ Param.mode == "production" }}
+    Check --> Test: {{ Param.mode != "production" }}
+    Deploy --> [*]
+    Test --> [*]
+Nodes:
+  Check:
+    executor: local
+    steps:
+      - name: check-mode
+        run: "echo 'Checking mode: {{ Param.mode }}'"
+  Deploy:
+    executor: local
+    steps:
+      - name: deploy
+        run: "echo 'Deploying to production'"
+  Test:
+    executor: local
+    steps:
+      - name: test
+        run: "echo 'Running tests in development mode'"

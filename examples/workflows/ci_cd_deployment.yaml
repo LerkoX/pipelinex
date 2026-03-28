@@ -1,0 +1,243 @@
+Version: "1.0"
+Name: ci-cd-deployment-pipeline
+
+Metadate:
+  type: in-config
+  description: "CI/CD 部署流水线元数据"
+  data:
+    environment: "{{ ParamParam.environment }}"
+    buildVersion: "{{ Param.version }}"
+
+Param:
+  # 部署环境: dev, staging, 或 production
+  environment: "staging"
+  # 版本号
+  version: "v1.0.0"
+  # 项目名称
+  projectName: "myapp"
+  # 是否跳过测试（用于快速验证）
+  skipTests: false
+  # 最小代码覆盖率阈值
+  codeCoverageThreshold: 80
+
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+      workdir: /tmp
+
+Graph: |
+  stateDiagram-v2
+    [*] --> Checkout
+    Checkout --> Build
+    Build --> UnitTests: {{ Param.skipTests == false }}
+    Build --> QualityCheck: {{ Param.skipTests == false }}
+    Build --> DeployDev: {{ Param.environment == "dev" and Param.skipTests == true }}
+    UnitTests --> QualityCheck
+    QualityCheck --> DeployDev: {{ Param.environment == "dev" and QualityCheck.allTestsPassed == true }}
+    QualityCheck --> DeployStaging: {{ Param.environment == "staging" and QualityCheck.allTestsPassed == true and QualityCheck.codeCoverage >= Param.codeCoverageThreshold }}
+    QualityCheck --> SkipDeploy: {{ Param.environment == "staging" and (QualityCheck.allTestsPassed == false or QualityCheck.codeCoverage < Param.codeCoverageThreshold) }}
+    QualityCheck --> ProductionReview: {{ Param.environment == "production" and QualityCheck.allTestsPassed == true and QualityCheck.codeCoverage >= Param.codeCoverageThreshold }}
+    QualityCheck --> RejectProduction: {{ Param.environment == "production" and (QualityCheck.allTestsPassed == false or QualityCheck.codeCoverage < Param.codeCoverageThreshold) }}
+    DeployDev --> [*]
+    DeployStaging --> [*]
+    ProductionReview --> ManualApproval
+    ManualApproval --> DeployProduction
+    DeployProduction --> [*]
+    SkipDeploy --> [*]
+    RejectProduction --> [*]
+
+Nodes:
+  Checkout:
+    executor: local
+    name: "代码检出"
+    description: "从仓库拉取代码"
+    steps:
+      - name: checkout
+        description: "克隆代码仓库"
+        run: |
+          echo "Checking out code for {{ Param.projectName }} version {{ Param.version }}"
+          echo '```pipelinex-json'
+          echo '{"branch": "main", "commit": "abc123", "timestamp": "'$(date -Iseconds)'"}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  Build:
+    executor: local
+    name: "构建应用"
+    description: "编译和打包应用"
+    steps:
+      - name: compile
+        description: "执行编译"
+        run: |
+          echo "Building {{ Param.projectName }} {{ Param.version }}"
+          echo "Compiling source code..."
+          echo "Running build optimizations..."
+          echo '```pipelinex-json'
+          echo '{"buildSuccess": true, "buildSize": "125MB", "buildTime": 45}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  UnitTests:
+    executor: local
+    name: "单元测试"
+    description: "运行单元测试套件"
+    steps:
+      - name: test
+        description: "执行单元测试"
+        run: |
+          echo "Running unit tests..."
+          echo "Test 1: PASS"
+          echo "Test 2: PASS"
+          echo "Test 3: PASS"
+          echo "Tests completed successfully"
+          echo '```pipelinex-json'
+          echo '{"testsRun": 50, "testsPassed": 50, "testsFailed": 0, "success": true}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  QualityCheck:
+    executor: local
+    name: "质量检查"
+    description: "执行代码质量检查和覆盖率分析"
+    steps:
+      - name: lint
+        description: "代码静态检查"
+        run: |
+          echo "Running code quality checks..."
+          echo "Linting: No issues found"
+          echo "Security scan: No vulnerabilities"
+      - name: coverage
+        description: "计算代码覆盖率"
+        run: |
+          echo "Calculating code coverage..."
+          allTestsPassed={{ UnitTests.success }}
+          echo "All tests passed: $allTestsPassed"
+          codeCoverage=85
+          echo "Code coverage: ${codeCoverage}%"
+          echo '```pipelinex-json'
+          echo '{"allTestsPassed": '$allTestsPassed', "codeCoverage": '$codeCoverage', "lintIssues": 0, "securityVulnerabilities": 0}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  DeployDev:
+    executor: local
+    name: "部署到开发环境"
+    description: "部署到开发服务器"
+    steps:
+      - name: deploy
+        description: "执行开发环境部署"
+        run: |
+          echo "Deploying {{ Param.projectName }} {{ Param.version }} to DEV environment"
+          echo "Target server: dev.example.com"
+          echo "Deployment completed!"
+          echo '```pipelinex-json'
+          echo '{"environment": "dev", "url": "https://dev.example.com", "deployedAt": "'$(date -Iseconds)'"}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  DeployStaging:
+    executor: local
+    name: "部署到预发布环境"
+    description: "部署到预发布服务器"
+    steps:
+      - name: deploy
+        description: "执行预发布环境部署"
+        run: |
+          echo "Deploying {{ Param.projectName }} {{ Param.version }} to STAGING environment"
+          echo "Target server: staging.example.com"
+          echo "Coverage check passed: {{ QualityCheck.codeCoverage }}% (required: {{ Param.codeCoverageThreshold }}%)"
+          echo "Deployment completed!"
+          echo '```pipelinex-json'
+          echo '{"environment": "staging", "url": "https://staging.example.com", "deployedAt": "'$(date -Iseconds)'"}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  ProductionReview:
+    executor: local
+    name: "生产环境审核"
+    description: "准备生产环境部署审核"
+    steps:
+      - name: prepare
+        description: "生成部署报告"
+        run: |
+          echo "Preparing production deployment review..."
+          echo "Version: {{ Param.version }}"
+          echo "All tests: PASSED"
+          echo "Code coverage: {{ QualityCheck.codeCoverage }}%"
+          echo "Ready for manual approval"
+          echo '```pipelinex-json'
+          echo '{"version": "{{ Param.version }}", "ready": true, "reviewUrl": "https://reviews.example.com/{{ Param.version }}"}'
+          echo '```'
+
+  ManualApproval:
+    executor: local
+    name: "人工审核"
+    description: "等待人工审核确认（模拟）"
+    steps:
+      - name: approve
+        description: "获取人工审核结果"
+        run: |
+          echo "Manual approval process..."
+          echo "Reviewer: john.doe@example.com"
+          echo "Approval: APPROVED"
+          echo "Comments: All checks passed, ready for production deployment"
+          echo '```pipelinex-json'
+          echo '{"approved": true, "reviewer": "john.doe@example.com", "approvedAt": "'$(date -Iseconds)'"}'
+          echo '```'
+
+  DeployProduction:
+    executor: local
+    name: "部署到生产环境"
+    description: "部署到生产服务器"
+    steps:
+      - name: deploy
+        description: "执行生产环境部署"
+        run: |
+          echo "Deploying {{ Param.projectName }} {{ Param.version }} to PRODUCTION environment"
+          echo "Target server: production.example.com"
+          echo "Approved by: {{ ManualApproval.reviewer }}"
+          echo "Deployment completed!"
+          echo '```pipelinex-json'
+          echo '{"environment": "production", "url": "https://production.example.com", "deployedAt": "'$(date -Iseconds)'"}}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  SkipDeploy:
+    executor: local
+    name: "跳过部署"
+    description: "记录跳过部署的原因"
+    steps:
+      - name: log
+        description: "记录跳过原因"
+        run: |
+          echo "Deployment skipped due to quality gate failure"
+          echo "All tests passed: {{ QualityCheck.allTestsPassed }}"
+          echo "Code coverage: {{ QualityCheck.codeCoverage }}% (required: {{ Param.codeCoverageThreshold }}%)"
+          echo '```pipelinex-json'
+          echo '{"skipped": true, "reason": "Quality gate failed", "testsPassed": "{{ QualityCheck.allTestsPassed }}", "coverage": {{ QualityCheck.codeCoverage }}, "threshold": {{ Param.codeCoverageThreshold }}}'
+          echo '```'
+
+  RejectProduction:
+    executor: local
+    name: "拒绝生产部署"
+    description: "拒绝生产环境部署"
+    steps:
+      - name: reject
+        description: "记录拒绝原因"
+        run: |
+          echo "Production deployment rejected!"
+          echo "All tests passed: {{ QualityCheck.allTestsPassed }}"
+          echo "Code coverage: {{ QualityCheck.codeCoverage }}% (required: {{ Param.codeCoverageThreshold }}%)"
+          echo "Please fix quality issues before deploying to production"
+          echo '```pipelinex-json'
+          echo '{"rejected": true, "reason": "Quality gate failed", "testsPassed": "{{ QualityCheck.allTestsPassed }}", "coverage": {{ QualityCheck.codeCoverage }}, "threshold": {{ Param.codeCoverageThreshold }}}'
+          echo '```'

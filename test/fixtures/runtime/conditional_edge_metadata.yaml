@@ -1,0 +1,48 @@
+Param:
+  env: "production"
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Setup
+    Setup --> Generate
+    Generate --> Process
+    Process --> Deploy: {{ Generate.shouldDeploy == true }}
+    Process --> Skip: {{ Generate.shouldDeploy == false }}
+    Deploy --> [*]
+    Skip --> [*]
+Nodes:
+  Setup:
+    executor: local
+    steps:
+      - name: setup
+        run: "echo 'Setting up environment'"
+  Generate:
+    executor: local
+    steps:
+      - name: generate-config
+        run: |
+          echo 'Generating config...'
+          echo '```pipelinex-yaml'
+          echo 'shouldDeploy: true'
+          echo '```'
+    extract:
+      type: codec-block
+  Process:
+    executor: local
+    steps:
+      - name: process
+        run: "echo 'Processing with shouldDeploy={{ Generate.shouldDeploy }}'"
+  Deploy:
+    executor: local
+    steps:
+      - name: deploy
+        run: "echo 'Deploying application'"
+  Skip:
+    executor: local
+    steps:
+      - name: skip
+        run: "echo 'Skipping deployment'"

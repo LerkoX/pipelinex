@@ -1,0 +1,44 @@
+Param:
+  testsPassed: true
+  codeCoverage: 85
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Validate
+    Validate --> Build: {{ Param.testsPassed == true }}
+    Validate --> Fail: {{ Param.testsPassed == false }}
+    Build --> Deploy: {{ Param.codeCoverage >= 80 }}
+    Build --> SkipDeploy: {{ Param.codeCoverage < 80 }}
+    Deploy --> [*]
+    SkipDeploy --> [*]
+    Fail --> [*]
+Nodes:
+  Validate:
+    executor: local
+    steps:
+      - name: validate
+        run: "echo 'Validating: tests={{ Param.testsPassed }}, coverage={{ Param.codeCoverage }}'"
+  Build:
+    executor: local
+    steps:
+      - name: build
+        run: "echo 'Building application'"
+  Deploy:
+    executor: local
+    steps:
+      - name: deploy
+        run: "echo 'Deploying with coverage {{ Param.codeCoverage }}%'"
+  SkipDeploy:
+    executor: local
+    steps:
+      - name: skip-deploy
+        run: "echo 'Skipping deploy due to low coverage: {{ Param.codeCoverage }}%'"
+  Fail:
+    executor: local
+    steps:
+      - name: fail
+        run: "echo 'Tests failed, cannot build'"

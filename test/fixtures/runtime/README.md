@@ -47,6 +47,15 @@
 | `comprehensive_metadata.yaml` | `TestComprehensivePipelineExecution/Metadata创建和渲染` | 综合测试 Metadata 创建、参数引用和渲染 |
 | `comprehensive_dag.yaml` | `TestComprehensivePipelineExecution/多节点DAG执行` | 综合测试多节点 DAG 执行和验证事件触发 |
 
+## 条件边测试
+
+| 配置文件 | 测试用例 | 测试功能 |
+|---------|---------|---------|
+| `conditional_edge_simple.yaml` | `TestRuntimeImpl_ConditionalEdge_SimpleParam` | 测试基于 Param 的简单条件边，根据参数值选择执行路径 |
+| `conditional_edge_metadata.yaml` | `TestRuntimeImpl_ConditionalEdge_Metadata` | 测试基于 Metadata 条件的边，节点间数据传递影响后续条件判断 |
+| `conditional_edge_complex.yaml` | `TestRuntimeImpl_ConditionalEdge_Complex` | 测试复杂的条件边组合，支持多种表达式格式和多条件选择 |
+| `conditional_edge_multi_cond.yaml` | `TestRuntimeImpl_ConditionalEdge_MultiCondition` | 测试多条件边的逻辑，数值比较操作符和条件链 |
+
 ## 图解析测试
 
 以下配置文件用于图解析测试，这些测试直接在代码中构造配置对象：
