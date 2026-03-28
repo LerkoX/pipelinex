@@ -3,11 +3,32 @@ package pipelinex
 import (
 	"context"
 	"fmt"
+	"os"
 	"reflect"
 	"sync"
 	"testing"
 	"time"
 )
+
+// loadTestConfig 从 test/fixtures/runtime/ 目录加载测试配置
+func loadTestConfig(t *testing.T, filename string) string {
+	t.Helper()
+	data, err := os.ReadFile("test/fixtures/runtime/" + filename)
+	if err != nil {
+		t.Fatalf("Failed to load test config %s: %v", filename, err)
+	}
+	return string(data)
+}
+
+// loadTestConfigTemplate 加载配置模板并格式化
+func loadTestConfigTemplate(t *testing.T, filename string, args ...interface{}) string {
+	t.Helper()
+	data, err := os.ReadFile("test/fixtures/runtime/" + filename)
+	if err != nil {
+		t.Fatalf("Failed to load test config %s: %v", filename, err)
+	}
+	return fmt.Sprintf(string(data), args...)
+}
 
 // TestNewRuntime tests creating a new Runtime instance
 func TestNewRuntime(t *testing.T) {
@@ -42,30 +63,7 @@ func TestRuntimeImpl_RunSync(t *testing.T) {
 	runtime := NewRuntime(ctx)
 
 	// Prepare test configuration with new format
-	config := `
-Param:
-  testParam: "test-value"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-    Task1 --> Task2
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'task1'"
-  Task2:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'task2'"
-`
+	config := loadTestConfig(t, "sync_pipeline.yaml")
 
 	// Create test listener
 	listener := &TestListener{}
@@ -93,11 +91,7 @@ func TestRuntimeImpl_RunSync_InvalidConfig(t *testing.T) {
 	runtime := NewRuntime(ctx)
 
 	// Prepare invalid configuration
-	invalidConfig := `
-invalid: yaml: content
-  testParam: "test-value"
-  missing: closing: brace
-`
+	invalidConfig := loadTestConfig(t, "invalid_config.yaml")
 
 	_, err := runtime.RunSync(ctx, "test-invalid-config", invalidConfig, nil)
 	if err == nil {
@@ -111,24 +105,7 @@ func TestRuntimeImpl_RunSync_DuplicateID(t *testing.T) {
 	runtime := NewRuntime(ctx)
 
 	// Prepare test configuration with new format
-	config := `
-Param:
-  testParam: "test-value"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'task1'"
-`
+	config := loadTestConfig(t, "single_node.yaml")
 
 	// First execution
 	_, err := runtime.RunSync(ctx, "duplicate-id", config, nil)
@@ -149,24 +126,7 @@ func TestRuntimeImpl_RunAsync(t *testing.T) {
 	runtime := NewRuntime(ctx)
 
 	// Prepare test configuration with new format
-	config := `
-Param:
-  testParam: "test-value"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'task1'"
-`
+	config := loadTestConfig(t, "async_pipeline.yaml")
 
 	// Create test listener
 	listener := &TestListener{}
@@ -206,24 +166,7 @@ func TestRuntimeImpl_Cancel(t *testing.T) {
 	runtime := NewRuntime(ctx)
 
 	// Prepare test configuration with new format - use sleep to ensure pipeline is running
-	config := `
-Param:
-  testParam: "test-value"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "sleep 2"
-`
+	config := loadTestConfig(t, "long_running.yaml")
 
 	// Execute asynchronous pipeline
 	pipeline, err := runtime.RunAsync(ctx, "test-cancel-pipeline", config, nil)
@@ -369,32 +312,12 @@ func TestRuntimeImpl_ConcurrentAccess(t *testing.T) {
 	ctx := context.Background()
 	runtime := NewRuntime(ctx)
 
-	// Prepare test configuration with new format
-	configTemplate := `
-Param:
-  testParam: "test-value"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task%d
-Nodes:
-  Task%d:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'task%d'"
-`
-
 	// Concurrent test
 	done := make(chan bool, 10)
 	for i := 0; i < 10; i++ {
 		go func(id int) {
 			defer func() { done <- true }()
-			pipelineConfig := fmt.Sprintf(configTemplate, id, id, id)
+			pipelineConfig := loadTestConfigTemplate(t, "concurrent_template.yaml", id, id, id)
 			_, err := runtime.RunAsync(ctx, fmt.Sprintf("pipeline-%d", id), pipelineConfig, nil)
 			if err != nil {
 				t.Errorf("Concurrent RunAsync failed: %v", err)
@@ -406,6 +329,171 @@ Nodes:
 	for i := 0; i < 10; i++ {
 		<-done
 	}
+}
+
+// TestRuntimeImpl_MultiPipelineConcurrency 测试多条流水线并发的完整生命周期
+// 测试配置使用包含节点间数据传递的 node_data_passing.yaml
+// 验证点：
+// 1. 所有流水线成功启动
+// 2. 所有流水线执行完成（等待 Done() 通道）
+// 3. 验证每个流水线的最终状态为 SUCCESS
+// 4. 验证节点间数据传递正确（Generate.value 和 Generate.message）
+// 5. 验证事件监听器的线程安全性
+func TestRuntimeImpl_MultiPipelineConcurrency(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx)
+
+	const numPipelines = 15 // 并发流水线数量
+
+	// 使用带缓冲的 channel 收集错误，避免 goroutine 阻塞
+	errors := make(chan error, numPipelines)
+
+	// 使用 WaitGroup 等待所有 goroutine 完成
+	var wg sync.WaitGroup
+
+	// 使用 channel 收集每个流水线的结果
+	type pipelineResult struct {
+		id     string
+		status string
+		event  int
+	}
+	results := make(chan pipelineResult, numPipelines)
+
+	// 记录开始时间用于性能监控
+	startTime := time.Now()
+
+	// 串行准备所有配置（避免模板引擎并发竞争）
+	configs := make([]string, numPipelines)
+	for i := 0; i < numPipelines; i++ {
+		configs[i] = loadTestConfig(t, "node_data_passing.yaml")
+	}
+
+	// 并发启动多个流水线
+	for i := 0; i < numPipelines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			pipelineConfig := configs[id]
+			pipelineID := fmt.Sprintf("multi-concurrent-pipeline-%d", id)
+
+			// 为每个流水线创建独立的监听器
+			listener := NewRecordingListener()
+
+			// 启动异步流水线
+			pipeline, err := runtime.RunAsync(ctx, pipelineID, pipelineConfig, listener)
+			if err != nil {
+				errors <- fmt.Errorf("pipeline %d RunAsync failed: %w", id, err)
+				return
+			}
+
+			// 等待流水线执行完成，最多等待10秒（因为有3个节点串行）
+			select {
+			case <-pipeline.Done():
+				// 流水线正常完成，获取状态
+				status := pipeline.Status()
+				eventCount := listener.Count(PipelineNodeFinish)
+
+				// 验证数据传递是否成功
+				metadata := pipeline.Metadata()
+				if metadata == nil {
+					errors <- fmt.Errorf("pipeline %s: metadata is nil", pipelineID)
+					return
+				}
+
+				// 验证 Generate 节点的数据是否正确传递
+				if value, ok := metadata["Generate.value"]; !ok {
+					errors <- fmt.Errorf("pipeline %s: Generate.value not found in metadata", pipelineID)
+				} else {
+					// 允许 int 或 float64 类型
+					switch v := value.(type) {
+					case string:
+						if v != "42" {
+							errors <- fmt.Errorf("pipeline %s: expected Generate.value=42, got %v", pipelineID, v)
+						}
+					case float64:
+						if v != 42.0 {
+							errors <- fmt.Errorf("pipeline %s: expected Generate.value=42.0, got %v", pipelineID, v)
+						}
+					case int:
+						if v != 42 {
+							errors <- fmt.Errorf("pipeline %s: expected Generate.value=42, got %v", pipelineID, v)
+						}
+					}
+				}
+
+				if message, ok := metadata["Generate.message"]; !ok {
+					errors <- fmt.Errorf("pipeline %s: Generate.message not found in metadata", pipelineID)
+				} else if message != "hello world" {
+					errors <- fmt.Errorf("pipeline %s: expected Generate.message='hello world', got %v", pipelineID, message)
+				}
+
+				results <- pipelineResult{id: pipelineID, status: status, event: eventCount}
+
+				t.Logf("Pipeline %s completed with status: %s", pipelineID, status)
+
+			case <-time.After(10 * time.Second):
+				// 超时处理
+				errors <- fmt.Errorf("pipeline %s timed out after 10 seconds", pipelineID)
+				// 尝试取消超时的流水线
+				if cancelErr := runtime.Cancel(ctx, pipelineID); cancelErr != nil {
+					t.Logf("Failed to cancel timeout pipeline %s: %v", pipelineID, cancelErr)
+				}
+			}
+		}(i)
+	}
+
+	// 等待所有 goroutine 完成
+	wg.Wait()
+
+	// 关闭 results channel
+	close(results)
+
+	// 收集所有错误
+	close(errors)
+	errorCount := 0
+	for err := range errors {
+		errorCount++
+		t.Errorf("Pipeline execution error: %v", err)
+	}
+
+	// 如果有错误，提前返回
+	if errorCount > 0 {
+		t.Fatalf("%d pipeline(s) failed to execute", errorCount)
+	}
+
+	// 验证所有流水线的执行结果
+	completedPipelines := 0
+	for result := range results {
+		completedPipelines++
+
+		// 验证流水线状态为 SUCCESS
+		if result.status != StatusSuccess {
+			t.Errorf("Pipeline %s expected status %s, got %s",
+				result.id, StatusSuccess, result.status)
+		}
+
+		// 验证至少有一个节点执行完成（应该有3个：Generate, Process, Consume）
+		if result.event != 3 {
+			t.Errorf("Pipeline %s expected 3 finished nodes, got %d", result.id, result.event)
+		}
+	}
+
+	// 验证所有流水线都完成了
+	if completedPipelines != numPipelines {
+		t.Errorf("Expected %d completed pipelines, got %d", numPipelines, completedPipelines)
+	}
+
+	// 性能监控
+	duration := time.Since(startTime)
+	avgDuration := duration / time.Duration(numPipelines)
+
+	t.Logf("Multi-pipeline concurrency test completed:")
+	t.Logf("  - Total pipelines: %d", numPipelines)
+	t.Logf("  - Total duration: %v", duration)
+	t.Logf("  - Average per pipeline: %v", avgDuration)
+	t.Logf("  - All pipelines completed successfully")
+	t.Logf("  - All data transfers verified")
 }
 
 // TestListener test listener implementation
@@ -777,26 +865,7 @@ func TestRuntimeImpl_RenderParam_SelfReference(t *testing.T) {
 	ctx := context.Background()
 	runtime := NewRuntime(ctx).(*RuntimeImpl)
 
-	config := `
-Param:
-  buildId: "2323"
-  imageName: "myapp-{{ Param.buildId }}"
-  fullImage: "{{ Param.imageName }}:latest"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'test'"
-`
+	config := loadTestConfig(t, "param_self_reference.yaml")
 
 	pipeline, err := runtime.RunSync(ctx, "testParam-self-ref", config, nil)
 	if err != nil {
@@ -830,26 +899,7 @@ func TestRuntimeImpl_RenderParam_CircularReference(t *testing.T) {
 	runtime := NewRuntime(ctx).(*RuntimeImpl)
 
 	// 测试一个简单的间接循环引用
-	config := `
-Param:
-  a: "{{ Param.b }}"
-  b: "{{ Param.c }}"
-  c: "{{ Param.a }}"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'task1'"
-`
+	config := loadTestConfig(t, "param_circular_reference.yaml")
 
 	_, err := runtime.RunSync(ctx, "testParam-circular", config, nil)
 	// 注意：实际实现中可能无法检测所有形式的循环引用
@@ -866,32 +916,7 @@ func TestRuntimeImpl_RenderMetadata_ReferenceParam(t *testing.T) {
 	ctx := context.Background()
 	runtime := NewRuntime(ctx).(*RuntimeImpl)
 
-	config := `
-Param:
-  env: "production"
-  namespace: "myapp"
-
-Metadate:
-  type: in-config
-  data:
-    K8sNamespace: "{{ Param.namespace }}-{{ Param.env }}"
-    ImagePrefix: "myregistry.com/{{ Param.namespace }}/"
-
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'ns={{ K8sNamespace }}, prefix={{ ImagePrefix }}'"
-`
+	config := loadTestConfig(t, "metadata_ref_param.yaml")
 
 	pipeline, err := runtime.RunSync(ctx, "test-metadata-ref-param", config, nil)
 	if err != nil {
@@ -923,33 +948,7 @@ func TestRuntimeImpl_RenderParam_NestedStructures(t *testing.T) {
 	ctx := context.Background()
 	runtime := NewRuntime(ctx).(*RuntimeImpl)
 
-	config := `
-Param:
-  prefix: "prod"
-  nested:
-    key1: "value-{{ Param.prefix }}"
-    key2:
-      - "item1-{{ Param.prefix }}"
-      - "item2-{{ Param.prefix }}"
-  list:
-    - "{{ Param.prefix }}-item1"
-    - "{{ Param.prefix }}-item2"
-
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'task1'"
-`
+	config := loadTestConfig(t, "param_nested.yaml")
 
 	pipeline, err := runtime.RunSync(ctx, "testParam-nested", config, nil)
 	if err != nil {
@@ -966,26 +965,7 @@ func TestRuntimeImpl_RenderParam_WithUndefinedVariable(t *testing.T) {
 	ctx := context.Background()
 	runtime := NewRuntime(ctx).(*RuntimeImpl)
 
-	config := `
-Param:
-  image: "myapp-{{ Param.version }}"
-  tag: "{{ Param.version }}-latest"
-
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'image={{ Param.image }}'"
-`
+	config := loadTestConfig(t, "param_undefined.yaml")
 
 	// version未定义，应该保持模板字符串原样
 	pipeline, err := runtime.RunSync(ctx, "testParam-undefined", config, nil)
@@ -1072,43 +1052,264 @@ func TestRenderValue_NestedStructures(t *testing.T) {
 }
 
 
-// TestComprehensivePipelineExecution 综合测试流水线的主要功能
+// TestRuntimeImpl_NodeDataPassing 测试节点间数据传递
+func TestRuntimeImpl_NodeDataPassing(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx)
+
+	config := loadTestConfig(t, "node_data_passing.yaml")
+
+	listener := NewRecordingListener()
+	pipeline, err := runtime.RunSync(ctx, "node-data-passing", config, listener)
+	if err != nil {
+		t.Fatalf("RunSync failed: %v", err)
+	}
+
+	if pipeline == nil {
+		t.Fatal("Pipeline should not be nil")
+	}
+
+	// 验证所有节点都执行了
+	if listener.Count(PipelineNodeStart) != 3 {
+		t.Errorf("Expected 3 PipelineNodeStart events, got %d", listener.Count(PipelineNodeStart))
+	}
+	if listener.Count(PipelineNodeFinish) != 3 {
+		t.Errorf("Expected 3 PipelineNodeFinish events, got %d", listener.Count(PipelineNodeFinish))
+	}
+
+	// 验证 metadata 中包含提取的数据
+	metadata := pipeline.Metadata()
+	if metadata == nil {
+		t.Fatal("Metadata should not be nil")
+	}
+
+	// 检查是否成功提取了 Generate 节点的数据
+	// 注意：JSON 数字可能被解析为 float64，YAML 数字可能是 int
+	value, hasValue := metadata["Generate.value"]
+	if !hasValue {
+		t.Error("Expected Generate.value in metadata")
+	} else {
+		// 允许 42 (int) 或 42.0 (float64)
+		switch v := value.(type) {
+		case string:
+			if v != "42" {
+				t.Errorf("Expected Generate.value=42 (string), got %v (type: %T)", value, value)
+			}
+		case float64:
+			if v != 42.0 {
+				t.Errorf("Expected Generate.value=42.0 (float64), got %v", value)
+			}
+		case int:
+			if v != 42 {
+				t.Errorf("Expected Generate.value=42 (int), got %v", value)
+			}
+		default:
+			t.Errorf("Expected Generate.value=42, got %v (type: %T)", value, value)
+		}
+	}
+
+	if message, ok := metadata["Generate.message"]; !ok {
+		t.Error("Expected Generate.message in metadata")
+	} else if message != "hello world" {
+		t.Errorf("Expected Generate.message='hello world', got %v", message)
+	}
+}
+
+// TestRuntimeImpl_ParallelNodes 测试并行节点执行
+func TestRuntimeImpl_ParallelNodes(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx)
+
+	config := loadTestConfig(t, "parallel_nodes.yaml")
+
+	listener := NewRecordingListener()
+
+	startTime := time.Now()
+	pipeline, err := runtime.RunSync(ctx, "parallel-nodes", config, listener)
+	if err != nil {
+		t.Fatalf("RunSync failed: %v", err)
+	}
+
+	duration := time.Since(startTime)
+	t.Logf("Pipeline execution took: %v", duration)
+
+	if pipeline == nil {
+		t.Fatal("Pipeline should not be nil")
+	}
+
+	// 验证所有节点都执行了 (Start, TaskA, TaskB, TaskC, Merge = 5个节点)
+	if listener.Count(PipelineNodeStart) != 5 {
+		t.Errorf("Expected 5 PipelineNodeStart events, got %d", listener.Count(PipelineNodeStart))
+	}
+	if listener.Count(PipelineNodeFinish) != 5 {
+		t.Errorf("Expected 5 PipelineNodeFinish events, got %d", listener.Count(PipelineNodeFinish))
+	}
+
+	// 并行执行应该比串行执行快得多
+	// 每个并行任务 sleep 100ms，串行执行至少需要 300ms
+	// 并行执行应该接近 100ms（取最慢的）
+	if duration > 250*time.Millisecond {
+		t.Logf("Warning: Execution took %v, parallel execution may not be working optimally", duration)
+	}
+}
+
+// TestRuntimeImpl_RuntimeRecovery 测试运行时状态恢复
+func TestRuntimeImpl_RuntimeRecovery(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx)
+
+	config := loadTestConfig(t, "runtime_recovery.yaml")
+
+	listener := NewRecordingListener()
+	pipeline, err := runtime.RunSync(ctx, "runtime-recovery", config, listener)
+	if err != nil {
+		t.Fatalf("RunSync failed: %v", err)
+	}
+
+	if pipeline == nil {
+		t.Fatal("Pipeline should not be nil")
+	}
+
+	// 验证只有 Step2 和 Step3 执行了（Step1 被跳过）
+	// 因为 Step1 的状态是 SUCCESS，应该被跳过
+	// 被跳过的节点会触发 PipelineNodeFinish 但不会触发 PipelineNodeStart
+	expectedStartEvents := 2 // Step2 和 Step3
+	expectedFinishEvents := 3 // Step1 (跳过), Step2, Step3
+
+	if listener.Count(PipelineNodeStart) != expectedStartEvents {
+		t.Errorf("Expected %d PipelineNodeStart events, got %d (recovery may not be working)", expectedStartEvents, listener.Count(PipelineNodeStart))
+	}
+	if listener.Count(PipelineNodeFinish) != expectedFinishEvents {
+		t.Errorf("Expected %d PipelineNodeFinish events, got %d (recovery may not be working)", expectedFinishEvents, listener.Count(PipelineNodeFinish))
+	}
+
+	// 验证 pipeline 状态为成功
+	if pipeline.Status() != StatusSuccess {
+		t.Errorf("Expected pipeline status %s, got %s", StatusSuccess, pipeline.Status())
+	}
+
+	// 验证 Step1 的状态仍然为 SUCCESS
+	graph := pipeline.GetGraph()
+	if graph == nil {
+		t.Fatal("Graph should not be nil")
+	}
+
+	nodes := graph.Nodes()
+	step1, ok := nodes["Step1"]
+	if !ok {
+		t.Fatal("Step1 node should exist")
+	}
+
+	if step1.GetRuntimeStatus() == nil {
+		t.Error("Step1 should have runtime status")
+	} else if step1.GetRuntimeStatus().Status != StatusSuccess {
+		t.Errorf("Expected Step1 status %s, got %s", StatusSuccess, step1.GetRuntimeStatus().Status)
+	}
+}
+
+// TestRuntimeImpl_ParallelStepRecovery 测试并行节点中的步骤级别恢复
+func TestRuntimeImpl_ParallelStepRecovery(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx)
+
+	config := loadTestConfig(t, "parallel_with_step_recovery.yaml")
+
+	listener := NewRecordingListener()
+	pipeline, err := runtime.RunSync(ctx, "parallel-step-recovery", config, listener)
+	if err != nil {
+		t.Fatalf("RunSync failed: %v", err)
+	}
+
+	if pipeline == nil {
+		t.Fatal("Pipeline should not be nil")
+	}
+
+	// 验证 Task1 执行了
+	// Task2 完全跳过（所有步骤都是 SUCCESS）
+	// Task3 只执行了 second-step（init 和 first-step 跳过）
+	// Merge 执行了
+	// 所以预期有 3 个 PipelineNodeStart 事件（Task1, Task3, Merge）
+	expectedStartEvents := 3
+	if listener.Count(PipelineNodeStart) != expectedStartEvents {
+		t.Errorf("Expected %d PipelineNodeStart events, got %d", expectedStartEvents, listener.Count(PipelineNodeStart))
+	}
+
+	// 验证 pipeline 状态为成功
+	if pipeline.Status() != StatusSuccess {
+		t.Errorf("Expected pipeline status %s, got %s", StatusSuccess, pipeline.Status())
+	}
+
+	// 验证 Task2 的所有步骤都是 SUCCESS
+	graph := pipeline.GetGraph()
+	if graph == nil {
+		t.Fatal("Graph should not be nil")
+	}
+
+	nodes := graph.Nodes()
+	task2, ok := nodes["Task2"]
+	if !ok {
+		t.Fatal("Task2 node should exist")
+	}
+
+	task2Runtime := task2.GetRuntimeStatus()
+	if task2Runtime == nil {
+		t.Fatal("Task2 should have runtime status")
+	}
+
+	if task2Runtime.Status != StatusSuccess {
+		t.Errorf("Expected Task2 status %s, got %s", StatusSuccess, task2Runtime.Status)
+	}
+
+	// 验证 Task2 的所有步骤都是 SUCCESS
+	for _, step := range task2Runtime.Steps {
+		if step.Status != StatusSuccess {
+			t.Errorf("Expected Task2 step %s status %s, got %s", step.Name, StatusSuccess, step.Status)
+		}
+	}
+
+	// 验证 Task3 的运行时状态
+	task3, ok := nodes["Task3"]
+	if !ok {
+		t.Fatal("Task3 node should exist")
+	}
+
+	task3Runtime := task3.GetRuntimeStatus()
+	if task3Runtime == nil {
+		t.Fatal("Task3 should have runtime status")
+	}
+
+	// Task3 应该是 SUCCESS（所有步骤都成功了）
+	if task3Runtime.Status != StatusSuccess {
+		t.Errorf("Expected Task3 status %s, got %s", StatusSuccess, task3Runtime.Status)
+	}
+
+	// 验证 Task3 的步骤状态
+	// init 和 first-step 应该是 SUCCESS
+	// second-step 应该是 SUCCESS（执行后）
+	expectedSteps := map[string]string{
+		"init":        StatusSuccess,
+		"first-step":  StatusSuccess,
+		"second-step": StatusSuccess,
+	}
+
+	for _, step := range task3Runtime.Steps {
+		expectedStatus, ok := expectedSteps[step.Name]
+		if !ok {
+			t.Errorf("Unexpected step %s in Task3", step.Name)
+		} else if step.Status != expectedStatus {
+			t.Errorf("Expected Task3 step %s status %s, got %s", step.Name, expectedStatus, step.Status)
+		}
+	}
+}
+
+// TestComprehensivePipelineExecution 综合测试流水线线的主要功能
 func TestComprehensivePipelineExecution(t *testing.T) {
 	ctx := context.Background()
 	runtime := NewRuntime(ctx)
 
 	t.Run("同步执行流水线", func(t *testing.T) {
 		listener := NewRecordingListener()
-		config := `
-Param:
-  env: "production"
-  appName: "test-app"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Metadate:
-  type: in-config
-  data:
-    deployEnv: "{{ Param.env }}"
-    appName: "{{ Param.appName }}"
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-    Task1 --> Task2
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Task1 executed'"
-  Task2:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Task2 executed'"
-`
+		config := loadTestConfig(t, "comprehensive_sync.yaml")
 		pipeline, err := runtime.RunSync(ctx, "comprehensive-sync", config, listener)
 		if err != nil {
 			t.Fatalf("RunSync failed: %v", err)
@@ -1134,24 +1335,7 @@ Nodes:
 
 	t.Run("异步执行流水线", func(t *testing.T) {
 		listener := NewRecordingListener()
-		config := `
-Param:
-  env: "development"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Async task'"
-`
+		config := loadTestConfig(t, "comprehensive_async.yaml")
 		pipeline, err := runtime.RunAsync(ctx, "comprehensive-async", config, listener)
 		if err != nil {
 			t.Fatalf("RunAsync failed: %v", err)
@@ -1185,26 +1369,7 @@ Nodes:
 	})
 
 	t.Run("Param模板渲染", func(t *testing.T) {
-		config := `
-Param:
-  buildId: "12345"
-  imageName: "myapp-{{ Param.buildId }}"
-  fullTag: "{{ Param.imageName }}:latest"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo '{{ Param.fullTag }}'"
-`
+		config := loadTestConfig(t, "comprehensive_param_render.yaml")
 		pipeline, err := runtime.RunSync(ctx, "param-render-test", config, nil)
 		if err != nil {
 			t.Fatalf("RunSync failed: %v", err)
@@ -1225,33 +1390,7 @@ Nodes:
 	})
 
 	t.Run("Metadata创建和渲染", func(t *testing.T) {
-		config := `
-Param:
-  namespace: "default"
-  cluster: "prod-cluster"
-
-Metadate:
-  type: in-config
-  data:
-    K8sNamespace: "{{ Param.namespace }}"
-    ClusterName: "{{ Param.cluster }}"
-    DeployTarget: "{{ Param.cluster }}/{{ Param.namespace }}"
-
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Deploy'"
-`
+		config := loadTestConfig(t, "comprehensive_metadata.yaml")
 		pipeline, err := runtime.RunSync(ctx, "metadata-test", config, nil)
 		if err != nil {
 			t.Fatalf("RunSync failed: %v", err)
@@ -1281,44 +1420,7 @@ Nodes:
 
 	t.Run("多节点DAG执行", func(t *testing.T) {
 		listener := NewRecordingListener()
-		config := `
-Param:
-  env: "test"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Setup
-    Setup --> Build
-    Setup --> Test
-    Build --> Deploy
-    Test --> Deploy
-    Deploy --> [*]
-Nodes:
-  Setup:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Setup'"
-  Build:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Build'"
-  Test:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Test'"
-  Deploy:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Deploy'"
-`
+		config := loadTestConfig(t, "comprehensive_dag.yaml")
 		pipeline, err := runtime.RunSync(ctx, "dag-test", config, listener)
 		if err != nil {
 			t.Fatalf("RunSync failed: %v", err)
@@ -1344,24 +1446,6 @@ Nodes:
 	})
 
 	t.Run("并行执行", func(t *testing.T) {
-		configTemplate := `
-Param:
-  pipelineId: "%d"
-Executors:
-  local:
-    type: local
-    config:
-      shell: bash
-Graph: |
-  stateDiagram-v2
-    [*] --> Task1
-Nodes:
-  Task1:
-    executor: local
-    steps:
-      - name: step1
-        run: "echo 'Pipeline %d'"
-`
 		numPipelines := 5
 		var wg sync.WaitGroup
 		errors := make(chan error, numPipelines)
@@ -1370,7 +1454,7 @@ Nodes:
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
-				pipelineConfig := fmt.Sprintf(configTemplate, id, id)
+				pipelineConfig := loadTestConfigTemplate(t, "parallel_template.yaml", id, id)
 				_, err := runtime.RunAsync(ctx, fmt.Sprintf("parallel-pipeline-%d", id), pipelineConfig, nil)
 				if err != nil {
 					errors <- err

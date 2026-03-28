@@ -60,3 +60,9 @@ type StepResult struct {
 	StartTime  time.Time
 	FinishTime time.Time
 }
+
+// CommandWrapper 包装命令，携带步骤元信息用于精确映射
+type CommandWrapper struct {
+	StepName string // 步骤名称
+	Command  string // 要执行的命令
+}

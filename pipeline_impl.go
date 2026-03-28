@@ -12,6 +12,7 @@ import (
 	"github.com/thoas/go-funk"
 )
 
+
 // 预检查PipelineImpl是否实现了Pipeline接口
 var _ Pipeline = (*PipelineImpl)(nil)
 var _ Graph = (*DGAGraph)(nil)
@@ -340,8 +341,8 @@ func (p *PipelineImpl) SetMetadata(store MetadataStore) {
 
 // Metadata 获取流水线的元数据
 func (p *PipelineImpl) Metadata() Metadata {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	if p.metadata == nil {
 		p.metadata = make(Metadata)
@@ -357,7 +358,12 @@ func (p *PipelineImpl) Metadata() Metadata {
 		}
 	}
 
-	return p.metadata
+	// 返回元数据的拷贝，避免并发修改问题
+	result := make(Metadata)
+	for k, v := range p.metadata {
+		result[k] = v
+	}
+	return result
 }
 
 // Listening 设置流水线执行事件监听器
@@ -507,7 +513,7 @@ func (p *PipelineImpl) executeNode(ctx context.Context, node Node, exec Executor
 	commandChan, resultChan := p.setupExecutorChannels(ctx, exec, steps)
 
 	// 3. 发送所有步骤命令
-	go p.sendCommands(ctx, commandChan, steps)
+	go p.sendCommands(ctx, node, commandChan, steps)
 
 	// 4. 等待并处理所有结果
 	lastErr, _ := p.waitForResults(ctx, node, exec, resultChan, steps)
@@ -561,13 +567,19 @@ func (p *PipelineImpl) setupExecutorChannels(ctx context.Context, exec Executor,
 }
 
 // sendCommands 发送所有步骤命令
-func (p *PipelineImpl) sendCommands(ctx context.Context, commandChan chan any, steps []Step) {
+func (p *PipelineImpl) sendCommands(ctx context.Context, node Node, commandChan chan any, steps []Step) {
 	defer close(commandChan)
 	for _, step := range steps {
 		select {
 		case <-ctx.Done():
 			return
 		default:
+		}
+
+		// 检查 step 是否已完成（运行时状态恢复）
+		if p.shouldSkipStep(node, step.Name) {
+			fmt.Printf("Skipping step %s (status: %s)\n", step.Name, getStepStatusString(node, step.Name))
+			continue
 		}
 
 		// 运行时渲染 step.Run，可以引用前面节点 extract 的数据
@@ -577,15 +589,65 @@ func (p *PipelineImpl) sendCommands(ctx context.Context, commandChan chan any, s
 			renderedRun = step.Run // 渲染失败时使用原始命令
 		}
 
-		commandChan <- renderedRun
+		commandChan <- executor.CommandWrapper{
+			StepName: step.Name,
+			Command:  renderedRun,
+		}
 	}
+}
+
+// shouldSkipStep 检查步骤是否应该跳过执行
+func (p *PipelineImpl) shouldSkipStep(node Node, stepName string) bool {
+	runtimeStatus := node.GetRuntimeStatus()
+	if runtimeStatus == nil {
+		return false
+	}
+
+	// 查找 step 的运行时状态
+	for _, step := range runtimeStatus.Steps {
+		if step.Name == stepName {
+			// SUCCESS、FAILED、CANCELLED 状态的 step 都跳过
+			switch step.Status {
+			case StatusSuccess, StatusFailed, StatusCancelled:
+				return true
+			default:
+				return false
+			}
+		}
+	}
+	return false
+}
+
+// getStepStatusString 辅助函数：获取 step 状态字符串（避免 nil panic）
+func getStepStatusString(node Node, stepName string) string {
+	runtimeStatus := node.GetRuntimeStatus()
+	if runtimeStatus == nil {
+		return "unknown"
+	}
+
+	for _, step := range runtimeStatus.Steps {
+		if step.Name == stepName {
+			return step.Status
+		}
+	}
+	return "unknown"
 }
 
 // waitForResults 等待并处理所有结果
 func (p *PipelineImpl) waitForResults(ctx context.Context, node Node, exec Executor, resultChan chan any, steps []Step) (error, string) {
 	var lastErr error
 	resultCount := 0
-	expectedResults := len(steps)
+	// 计算实际需要执行的步骤数量（不包括已完成的步骤）
+	expectedResults := 0
+	for _, step := range steps {
+		if !p.shouldSkipStep(node, step.Name) {
+			expectedResults++
+		}
+	}
+	// 如果没有需要执行的步骤，直接返回
+	if expectedResults == 0 {
+		return nil, ""
+			}
 	var allOutput strings.Builder
 
 	for resultCount < expectedResults {
@@ -640,9 +702,19 @@ func (p *PipelineImpl) handleResult(ctx context.Context, node Node, _ Executor, 
 			handler.err = v.Error
 		}
 
-		// 更新步骤运行时状态
-		if resultCount < len(steps) {
-			p.updateStepRuntimeStatus(node, steps[resultCount], v)
+		// 通过步骤名称查找对应的步骤（修复索引映射错误）
+		var targetStep *Step
+		for i := range steps {
+			if steps[i].Name == v.StepName {
+				targetStep = &steps[i]
+				break
+			}
+		}
+
+		if targetStep != nil {
+			p.updateStepRuntimeStatus(node, *targetStep, v)
+		} else {
+			fmt.Printf("Warning: StepResult for '%s' not found in steps array\n", v.StepName)
 		}
 		handler.count++
 	case []byte:
@@ -838,13 +910,14 @@ func (p *PipelineImpl) buildRenderContext() map[string]any {
 	p.mu.RLock()
 	if p.param != nil {
 		ctx["Param"] = p.param
+		// 同时展开 param 到顶层，支持直接引用
 		for k, v := range p.param {
 			ctx[k] = v
 		}
 	}
 	p.mu.RUnlock()
 
-	// 添加 Metadata 和其他动态数据
+	// 添加 Metadata 和其他动态数据（这里 Metadata 返回的是拷贝，安全）
 	metadata := p.Metadata()
 	if metadata != nil {
 		ctx["Metadata"] = metadata
@@ -910,14 +983,20 @@ func (p *PipelineImpl) extractOutput(ctx context.Context, node Node, stepResult 
 		return fmt.Errorf("failed to extract data from node %s: %w", node.Id(), err)
 	}
 
-	// 保存到 metadata
+	// 保存到 metadata（加锁防止并发写入）
 	if len(extracted) > 0 {
-		metadata := p.Metadata()
+		p.mu.Lock()
+		defer p.mu.Unlock()
+
+		// 确保 metadata 已初始化
+		if p.metadata == nil {
+			p.metadata = make(Metadata)
+		}
 
 		// 保存到内存 metadata
 		for key, value := range extracted {
 			metadataKey := fmt.Sprintf("%s.%s", node.Id(), key)
-			metadata[metadataKey] = value
+			p.metadata[metadataKey] = value
 			fmt.Printf("Extracted data: %s = %v\n", metadataKey, value)
 		}
 

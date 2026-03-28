@@ -1,0 +1,49 @@
+Param:
+  env: "test"
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Start
+    Start --> TaskA
+    Start --> TaskB
+    Start --> TaskC
+    TaskA --> Merge
+    TaskB --> Merge
+    TaskC --> Merge
+    Merge --> [*]
+Nodes:
+  Start:
+    executor: local
+    steps:
+      - name: start
+        run: "echo 'Starting parallel tasks'"
+  TaskA:
+    executor: local
+    steps:
+      - name: task-a
+        run: "echo 'Task A executing' && sleep 0.1"
+    extract:
+      type: codec-block
+  TaskB:
+    executor: local
+    steps:
+      - name: task-b
+        run: "echo 'Task B executing' && sleep 0.1"
+    extract:
+      type: codec-block
+  TaskC:
+    executor: local
+    steps:
+      - name: task-c
+        run: "echo 'Task C executing' && sleep 0.1"
+    extract:
+      type: codec-block
+  Merge:
+    executor: local
+    steps:
+      - name: merge
+        run: "echo 'Merging results from parallel tasks'"

@@ -181,22 +181,44 @@ func (k *KubernetesExecutor) Transfer(ctx context.Context, resultChan chan<- any
 		default:
 		}
 
-		// 处理不同类型的数据
-		switch v := data.(type) {
-		case string:
-			// 执行命令（实时输出）
-			k.executeCommandStreaming(execCtx, v, resultChan)
-		default:
-			resultChan <- fmt.Errorf("unsupported data type: %T", data)
+		// 处理 commandWrapper 类型
+		cmdWrapper, ok := data.(executor.CommandWrapper)
+		if !ok {
+			resultChan <- fmt.Errorf("unsupported data type: %T, expected CommandWrapper", data)
+			continue
 		}
+		// 执行命令（携带步骤名称）
+		k.executeCommandStreaming(execCtx, cmdWrapper.Command, cmdWrapper.StepName, resultChan)
 	}
 }
 
 // buildPodSpec 构建Pod配置
 func (k *KubernetesExecutor) buildPodSpec() *corev1.Pod {
-	// 构建环境变量
-	envVars := make([]corev1.EnvVar, 0, len(k.env))
+	// 持有读锁复制所有需要的字段，避免竞态条件
+	k.mu.RLock()
+	image := k.image
+	workdir := k.workdir
+	podName := k.podName
+	serviceAccount := k.serviceAccount
+
+	// 复制环境变量
+	envMap := make(map[string]string, len(k.env))
 	for key, value := range k.env {
+		envMap[key] = value
+	}
+
+	// 复制卷挂载
+	volumeMounts := make([]corev1.VolumeMount, len(k.volumeMounts))
+	copy(volumeMounts, k.volumeMounts)
+
+	// 复制卷配置
+	volumes := make([]corev1.Volume, len(k.volumes))
+	copy(volumes, k.volumes)
+	k.mu.RUnlock()
+
+	// 构建环境变量
+	envVars := make([]corev1.EnvVar, 0, len(envMap))
+	for key, value := range envMap {
 		envVars = append(envVars, corev1.EnvVar{
 			Name:  key,
 			Value: value,
@@ -206,25 +228,25 @@ func (k *KubernetesExecutor) buildPodSpec() *corev1.Pod {
 	// 构建容器配置
 	container := corev1.Container{
 		Name:    "executor",
-		Image:   k.image,
+		Image:   image,
 		Command: []string{"sleep", "3600"},
 		Env:     envVars,
 	}
 
 	// 设置工作目录
-	if k.workdir != "" {
-		container.WorkingDir = k.workdir
+	if workdir != "" {
+		container.WorkingDir = workdir
 	}
 
 	// 设置卷挂载
-	if len(k.volumeMounts) > 0 {
-		container.VolumeMounts = k.volumeMounts
+	if len(volumeMounts) > 0 {
+		container.VolumeMounts = volumeMounts
 	}
 
 	// 构建Pod配置
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:   k.podName,
+			Name:   podName,
 			Labels: map[string]string{
 				"app":       "pipelinex",
 				"component": "executor",
@@ -237,13 +259,13 @@ func (k *KubernetesExecutor) buildPodSpec() *corev1.Pod {
 	}
 
 	// 设置ServiceAccount
-	if k.serviceAccount != "" {
-		pod.Spec.ServiceAccountName = k.serviceAccount
+	if serviceAccount != "" {
+		pod.Spec.ServiceAccountName = serviceAccount
 	}
 
 	// 设置卷
-	if len(k.volumes) > 0 {
-		pod.Spec.Volumes = k.volumes
+	if len(volumes) > 0 {
+		pod.Spec.Volumes = volumes
 	}
 
 	return pod
@@ -299,7 +321,7 @@ func (k *KubernetesExecutor) waitForPodRunning(ctx context.Context) error {
 }
 
 // executeCommandStreaming 执行命令并实时流式输出
-func (k *KubernetesExecutor) executeCommandStreaming(ctx context.Context, command string, resultChan chan<- any) {
+func (k *KubernetesExecutor) executeCommandStreaming(ctx context.Context, command string, stepName string, resultChan chan<- any) {
 	startTime := time.Now()
 
 	err := k.executeCommandInPodStreaming(ctx, command, func(data []byte) {
@@ -308,6 +330,7 @@ func (k *KubernetesExecutor) executeCommandStreaming(ctx context.Context, comman
 
 	// 发送最终结果
 	resultChan <- &executor.StepResult{
+		StepName:   stepName,
 		Command:    command,
 		Output:     "",
 		Error:      err,

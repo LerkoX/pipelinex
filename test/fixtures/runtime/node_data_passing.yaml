@@ -1,0 +1,38 @@
+Param:
+  env: "test"
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Generate
+    Generate --> Process
+    Process --> Consume
+    Consume --> [*]
+Nodes:
+  Generate:
+    executor: local
+    steps:
+      - name: generate-data
+        run: |
+          echo 'Generating data...'
+          echo '```pipelinex-yaml'
+          echo 'value: 42'
+          echo 'message: hello world'
+          echo '```'
+    extract:
+      type: codec-block
+  Process:
+    executor: local
+    steps:
+      - name: use-extracted-data
+        run: "echo 'Processing value: {{ Generate.value }}' && echo 'Processing message: {{ Generate.message }}'"
+    extract:
+      type: codec-block
+  Consume:
+    executor: local
+    steps:
+      - name: final-step
+        run: "echo 'Final consumption'"

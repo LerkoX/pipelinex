@@ -24,6 +24,11 @@ go test ./test/ -v      # Run tests with verbose output
 
 **Note**: All tests should pass. Run `go build ./...` before testing to ensure no compilation errors.
 
+**Test Configuration File Maintenance**:
+- Test configuration files are located in `test/fixtures/runtime/` directory
+- The mapping between configuration files and test cases is documented in `test/fixtures/runtime/README.md`
+- When adding new test cases, update `test/fixtures/runtime/README.md` to document the new configuration files
+
 ### Code Quality
 ```bash
 go fmt ./...            # Format all Go code

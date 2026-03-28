@@ -101,14 +101,14 @@ func (l *LocalExecutor) Transfer(ctx context.Context, resultChan chan<- any, com
 		default:
 		}
 
-		// 处理不同类型的数据
-		switch v := data.(type) {
-		case string:
-			// 执行命令（实时输出）
-			l.executeCommandStreaming(execCtx, v, resultChan)
-		default:
-			resultChan <- fmt.Errorf("unsupported data type: %T", data)
+		// 处理 commandWrapper 类型
+		cmdWrapper, ok := data.(executor.CommandWrapper)
+		if !ok {
+			resultChan <- fmt.Errorf("unsupported data type: %T, expected CommandWrapper", data)
+			continue
 		}
+		// 执行命令（携带步骤名称）
+		l.executeCommandStreaming(execCtx, cmdWrapper.Command, cmdWrapper.StepName, resultChan)
 	}
 }
 
@@ -127,7 +127,7 @@ func (l *LocalExecutor) killCurrentProcess() {
 }
 
 // executeCommandStreaming 执行命令并实时流式输出
-func (l *LocalExecutor) executeCommandStreaming(ctx context.Context, command string, resultChan chan<- any) {
+func (l *LocalExecutor) executeCommandStreaming(ctx context.Context, command string, stepName string, resultChan chan<- any) {
 	startTime := time.Now()
 
 	// 创建带超时的上下文
@@ -144,6 +144,7 @@ func (l *LocalExecutor) executeCommandStreaming(ctx context.Context, command str
 
 	// 发送最终结果
 	resultChan <- &executor.StepResult{
+		StepName:   stepName,
 		Command:    command,
 		Output:     "",
 		Error:      err,
