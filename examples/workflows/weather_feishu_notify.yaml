@@ -1,0 +1,62 @@
+Version: "1.0"
+Name: shenzhen-weather-notify-pipeline
+
+Metadate:
+  type: in-config
+  description: "深圳天气获取和飞书通知元数据"
+  data:
+    city: "{{ Param.city }}"
+    notifyTime: "{{ Param.notifyTime }}"
+
+Param:
+  city: "深圳"
+  notifyTime: "08:00"
+  weatherApi: "wttr.in"
+  # 飞书配置
+  feishuAppId: ""
+  feishuAppSecret: ""
+  feishuChatId: ""
+  # 脚本目录 (绝对路径)
+  scriptDir: "/workspace/github/pipelinex/examples/workflows/scripts"
+
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+      workdir: /tmp
+
+Graph: |
+  stateDiagram-v2
+    [*] --> GetWeather
+    GetWeather --> SendFeishu
+    SendFeishu --> [*]
+
+Nodes:
+  GetWeather:
+    executor: local
+    name: "获取深圳天气"
+    description: "从天气API获取深圳当前和未来天气信息"
+    steps:
+      - name: fetch
+        description: "获取深圳天气数据"
+        run: |
+          export WEATHER_CITY="{{ Param.city }}"
+          export WEATHER_API="{{ Param.weatherApi }}"
+          python3 {{ Param.scriptDir }}/get_weather.py > /tmp/weather_data.json
+    extract:
+      type: codec-block
+
+  SendFeishu:
+    executor: local
+    name: "发送飞书通知"
+    description: "通过飞书API发送天气通知（Markdown格式）"
+    steps:
+      - name: send
+        description: "调用飞书API发送富文本消息"
+        run: |
+          export FEISHU_APP_ID="{{ Param.feishuAppId }}"
+          export FEISHU_APP_SECRET="{{ Param.feishuAppSecret }}"
+          export FEISHU_CHAT_ID="{{ Param.feishuChatId }}"
+          export WEATHER_DATA_FILE="/tmp/weather_data.json"
+          python3 {{ Param.scriptDir }}/send_feishu.py
