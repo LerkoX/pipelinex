@@ -1,5 +1,85 @@
 # 更新日志
 
+## [Unreleased] - 2026-04-30
+
+本版本新增了完整的示例代码和测试用例，包含数据传递、并行执行、运行时恢复等核心功能的测试，以及天气飞书通知的完整示例。
+
+### 新增功能
+
+#### 1. 完整示例代码
+- 新增 `examples/workflows/main.go` - 示例主程序，演示多种 Pipeline 使用场景
+- 新增 `examples/workflows/data_etl.yaml` - 数据处理 ETL Pipeline 示例
+- 新增 `examples/workflows/file_processing.yaml` - 文件处理 Pipeline 示例
+- 新增 `examples/run_weather_pipeline.go` - 天气飞书通知示例程序
+- 新增 `examples/workflows/weather_feishu_notify.yaml` - 天气飞书通知 Pipeline 配置
+- 新增 `examples/workflows/scripts/get_weather.py` - 使用 OpenMeteo API 获取天气数据
+- 新增 `examples/workflows/scripts/send_feishu.py` - 通过飞书 API 发送富文本通知
+- 新增 `examples/workflows/README.md` - 示例文档和使用说明
+- 新增 `examples/workflows/build.sh` - 示例构建脚本
+
+#### 2. 全面的测试用例
+- 新增 `test/fixtures/runtime/` 目录，包含 18 个测试配置文件
+- 新增 `test/fixtures/runtime/README.md` - 测试配置文件说明文档
+- 数据传递测试：`node_data_passing.yaml`
+- 并行执行测试：`parallel_nodes.yaml`
+- 运行时恢复测试：`runtime_recovery.yaml`、`parallel_with_step_recovery.yaml`
+- Param 模板渲染测试：`param_self_reference.yaml`、`param_circular_reference.yaml`、`param_nested.yaml` 等
+- 综合功能测试：`comprehensive_sync.yaml`、`comprehensive_async.yaml`、`comprehensive_dag.yaml` 等
+
+### 改进与优化
+
+#### 1. Pipeline 执行增强
+- **pipeline_impl.go** - 优化数据传递和并行执行逻辑（+107 行）
+- 新增节点间数据传递支持，通过 `extract` 字段提取数据并在后续节点使用
+- 新增并行节点执行支持，独立任务并行运行以提升性能
+- 完善 Runtime 状态恢复功能，支持步骤级别的恢复
+
+#### 2. 执行器信息追踪
+- **executor/kubernetes/kubernetes.go** - 添加运行时信息追踪（+63 行）
+- **executor/local/local.go** - 添加运行时信息追踪（+17 行）
+- **executor/interfaces.go** - 扩展 ExecutorInfoProvider 接口（+6 行）
+
+#### 3. 日志优化
+- 完善 Pipeline 执行日志输出
+- 添加更详细的事件监听和状态变化日志
+
+### Bug 修复
+
+#### 1. 步骤级别恢复索引映射
+- 修复 `parallel_with_step_recovery.yaml` 测试中的索引映射错误
+- 确保并行节点中的步骤恢复功能正确工作
+
+### 测试覆盖
+
+- **runtime_test.go** - 大幅增强测试覆盖（重构约 824 行）
+- 新增数据传递测试用例
+- 新增并行执行测试用例
+- 新增运行时恢复测试用例
+- 新增步骤级别恢复测试用例
+- 所有测试用例通过
+
+### 文件变更统计
+
+- 新增文件：26 个（示例、脚本、测试配置）
+- 修改文件：8 个
+- 删除文件：2 个（未使用的脚本）
+- 总行数变化：+2,776 / -418
+
+### 完整提交记录
+
+```
+84032b5 chore: 删除未使用的示例脚本
+54e8b07 feat: 添加天气飞书通知示例
+38f866a feat: 添加example用例
+523f445 feat: 添加示例和并发的测试用例
+87ff47b fix: 修复步骤级别运行时恢复中的索引映射错误
+f17867a feat: 添加数据传递 并行节点 运行时恢复单元测试
+f624aad feat: 提取测试用例文件
+14ed3f9 feat: 更新日志
+```
+
+---
+
 ## [Unreleased] - 2026-03-22
 
 本版本新增了 Pipeline 运行时状态持久化、控制台日志推送等功能，增强了 Metadata 的线程安全性，并大幅提升了测试覆盖率。
