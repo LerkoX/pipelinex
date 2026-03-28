@@ -19,6 +19,21 @@ type PipelineListener struct {
 	ctx    context.Context
 }
 
+// getRunningNodes 获取当前正在运行的节点
+func getRunningNodes(p pipelinex.Pipeline) []string {
+	graph := p.GetGraph()
+	nodes := graph.Nodes()
+	var runningNodes []string
+
+	for name, node := range nodes {
+		status := node.GetRuntimeStatus()
+		if status != nil && status.Status == "Running" {
+			runningNodes = append(runningNodes, name)
+		}
+	}
+	return runningNodes
+}
+
 func (l *PipelineListener) Handle(p pipelinex.Pipeline, event pipelinex.Event) {
 	switch event {
 	case pipelinex.PipelineInit:
@@ -29,7 +44,10 @@ func (l *PipelineListener) Handle(p pipelinex.Pipeline, event pipelinex.Event) {
 				Message:  "流水线初始化",
 			})
 		}
-		fmt.Printf("[事件] 流水线初始化: %s\n", p.Id())
+		fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+		fmt.Printf("  流水线: %s\n", p.Id())
+		fmt.Printf("  状态:   初始化\n")
+		fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	case pipelinex.PipelineStart:
 		if l.pusher != nil {
 			l.pusher.Push(l.ctx, logger.Entry{
@@ -38,7 +56,8 @@ func (l *PipelineListener) Handle(p pipelinex.Pipeline, event pipelinex.Event) {
 				Message:  "流水线开始执行",
 			})
 		}
-		fmt.Printf("[事件] 流水线开始执行: %s\n", p.Id())
+		fmt.Printf("  状态:   执行中\n")
+		fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	case pipelinex.PipelineFinish:
 		if l.pusher != nil {
 			l.pusher.Push(l.ctx, logger.Entry{
@@ -47,7 +66,9 @@ func (l *PipelineListener) Handle(p pipelinex.Pipeline, event pipelinex.Event) {
 				Message:  fmt.Sprintf("流水线执行完成，状态: %s", p.Status()),
 			})
 		}
-		fmt.Printf("[事件] 流水线执行完成: %s, 状态: %s\n", p.Id(), p.Status())
+		fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
+		fmt.Printf("  状态:   %s\n", p.Status())
+		fmt.Printf("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 	case pipelinex.PipelineExecutorPrepare:
 		if l.pusher != nil {
 			l.pusher.Push(l.ctx, logger.Entry{
@@ -55,23 +76,52 @@ func (l *PipelineListener) Handle(p pipelinex.Pipeline, event pipelinex.Event) {
 				Message: "执行器准备中",
 			})
 		}
-		fmt.Printf("[事件] 执行器准备中\n")
 	case pipelinex.PipelineNodeStart:
-		if l.pusher != nil {
-			l.pusher.Push(l.ctx, logger.Entry{
-				Level:   logger.LevelDebug,
-				Message: "节点开始执行",
-			})
+		// 获取正在运行的节点
+		runningNodes := getRunningNodes(p)
+		if len(runningNodes) > 0 {
+			fmt.Printf("\n")
+			for _, nodeID := range runningNodes {
+				fmt.Printf("▶ 节点执行: %s\n", nodeID)
+				if l.pusher != nil {
+					l.pusher.Push(l.ctx, logger.Entry{
+						Pipeline: p.Id(),
+						Node:     nodeID,
+						Level:    logger.LevelInfo,
+						Message:  "节点开始执行",
+					})
+				}
+			}
 		}
-		fmt.Printf("[事件] 节点开始执行\n")
 	case pipelinex.PipelineNodeFinish:
-		if l.pusher != nil {
-			l.pusher.Push(l.ctx, logger.Entry{
-				Level:   logger.LevelDebug,
-				Message: "节点执行完成",
-			})
+		fmt.Printf("\n")
+		// 获取所有节点状态
+		graph := p.GetGraph()
+		nodes := graph.Nodes()
+		for comptedNode, node := range nodes {
+			status := node.GetRuntimeStatus()
+			if status != nil && status.Status == "Success" {
+				fmt.Printf("✓ 节点完成: %s\n", comptedNode)
+				if l.pusher != nil {
+					l.pusher.Push(l.ctx, logger.Entry{
+						Pipeline: p.Id(),
+						Node:     comptedNode,
+						Level:    logger.LevelInfo,
+						Message:  "节点执行完成",
+					})
+				}
+			} else if status != nil && status.Status == "Failed" {
+				fmt.Printf("✗ 节点失败: %s\n", comptedNode)
+				if l.pusher != nil {
+					l.pusher.Push(l.ctx, logger.Entry{
+						Pipeline: p.Id(),
+						Node:     comptedNode,
+						Level:    logger.LevelError,
+						Message:  "节点执行失败",
+					})
+				}
+			}
 		}
-		fmt.Printf("[事件] 节点执行完成\n")
 	default:
 		fmt.Printf("[事件] 未知事件: %s\n", event)
 	}

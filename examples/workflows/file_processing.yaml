@@ -20,15 +20,14 @@ Executors:
     type: local
     config:
       shell: bash
-      workdir: /tmp/pipeline
+      workdir: /tmp
 
 Graph: |
   stateDiagram-v2
     [*] --> Start
     Start --> CreateDir
-    Start --> CompressLogs
-    Start --> GenerateManifest
-    CreateDir --> Merge
+    CreateDir --> CompressLogs
+    CreateDir --> GenerateManifest
     CompressLogs --> Merge
     GenerateManifest --> Merge
     Merge --> Cleanup
@@ -63,8 +62,42 @@ Nodes:
         run: |
           mkdir -p {{ Param.projectDir }}/archives
           echo "Archive directory created"
+      - name: print-directories
+        description: "打印目录内容"
+        run: |
+          echo "=== Directory Contents ==="
+          echo "Logs directory:"
+          ls -la {{ Param.projectDir }}/logs || true
+          echo ""
+          echo "Archives directory:"
+          ls -la {{ Param.projectDir }}/archives || true
+      - name: create-random-logs
+        description: "创建随机日志文件"
+        run: |
+          cd {{ Param.projectDir }}/logs
+          # 创建3个随机日志文件
+          for i in {1..3}; do
+            timestamp=$(date +%s%N)
+            filename="app_${timestamp}.log"
+            echo "[$(date)] INFO: Application started - Random log entry $i" > $filename
+            echo "[$(date)] DEBUG: Processing data chunk $((RANDOM % 100))" >> $filename
+            echo "[$(date)] WARN: Resource usage at $((RANDOM % 100))%" >> $filename
+            echo "Created log file: $filename"
+          done
+      - name: print-logs
+        description: "打印日志目录内容"
+        run: |
+          echo "=== Logs Directory After Creation ==="
+          ls -la {{ Param.projectDir }}/logs
+          echo ""
+          echo "=== Log File Contents ==="
+          for file in {{ Param.projectDir }}/logs/*.log; do
+            echo "--- File: $(basename $file) ---"
+            cat "$file"
+            echo ""
+          done
           echo '```pipelinex-json'
-          echo '{"logDir": "{{ Param.projectDir }}/logs", "archiveDir": "{{ Param.projectDir }}/archives"}'
+          echo '{"logDir": "{{ Param.projectDir }}/logs", "archiveDir": "{{ Param.projectDir }}/archives", "logFilesCreated": 3}'
           echo '```'
     extract:
       type: codec-block
@@ -74,25 +107,49 @@ Nodes:
     name: "压缩日志文件"
     description: "将日志文件压缩并移到归档目录"
     steps:
+      - name: print-before-compress
+        description: "压缩前打印目录内容"
+        run: |
+          echo "=== Before Compression ==="
+          echo "Logs directory:"
+          ls -la {{ Param.projectDir }}/logs || true
+          echo ""
+          echo "Archives directory:"
+          ls -la {{ Param.projectDir }}/archives || true
       - name: compress
         description: "压缩日志文件"
         run: |
           cd {{ Param.projectDir }}/logs
           timestamp=$(date +%Y%m%d)
           archive="{{ Param.projectDir }}/archives/logs_${timestamp}.tar.gz"
-          tar -czf $archive $(find . -name "{{ Param.logPattern }}" -type f -mtime +1 2>/dev/null | xargs -n 1) 2>/dev/null
+          tar -czf $archive $(find . -name "{{ Param.logPattern }}" -type f 2>/dev/null | xargs -n 1) 2>/dev/null
           echo "Compressed logs to: $archive"
           echo '```pipelinex-json'
           echo '{"archiveFile": "'$archive'", "compressedCount": "1"}'
           echo '```'
+      - name: print-after-compress
+        description: "压缩后打印目录内容"
+        run: |
+          echo "=== After Compression ==="
+          echo "Logs directory:"
+          ls -la {{ Param.projectDir }}/logs || true
+          echo ""
+          echo "Archives directory:"
+          ls -la {{ Param.projectDir }}/archives || true
     extract:
       type: codec-block
 
   GenerateManifest:
     executor: local
-    name: "生成文件清单"
+    name: "生成 manifest 文件"
     description: "生成归档文件的详细清单"
     steps:
+      - name: print-before-manifest
+        description: "生成清单前打印目录内容"
+        run: |
+          echo "=== Before Manifest Generation ==="
+          echo "Archives directory:"
+          ls -la {{ Param.projectDir }}/archives || true
       - name: generate
         description: "创建归档清单文件"
         run: |
@@ -105,6 +162,15 @@ Nodes:
           echo '```pipelinex-json'
           echo '{"manifestFile": "'$manifest'", "status": "generated"}'
           echo '```'
+      - name: print-after-manifest
+        description: "生成清单后打印目录内容"
+        run: |
+          echo "=== After Manifest Generation ==="
+          echo "Archives directory:"
+          ls -la {{ Param.projectDir }}/archives || true
+          echo ""
+          echo "=== Manifest Contents ==="
+          cat {{ Param.projectDir }}/archives/manifest_{{ Param.timestamp }}.txt 2>/dev/null || true
     extract:
       type: codec-block
 

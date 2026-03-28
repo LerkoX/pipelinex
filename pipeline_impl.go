@@ -341,8 +341,8 @@ func (p *PipelineImpl) SetMetadata(store MetadataStore) {
 
 // Metadata 获取流水线的元数据
 func (p *PipelineImpl) Metadata() Metadata {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
 	if p.metadata == nil {
 		p.metadata = make(Metadata)
@@ -358,7 +358,12 @@ func (p *PipelineImpl) Metadata() Metadata {
 		}
 	}
 
-	return p.metadata
+	// 返回元数据的拷贝，避免并发修改问题
+	result := make(Metadata)
+	for k, v := range p.metadata {
+		result[k] = v
+	}
+	return result
 }
 
 // Listening 设置流水线执行事件监听器
@@ -905,13 +910,14 @@ func (p *PipelineImpl) buildRenderContext() map[string]any {
 	p.mu.RLock()
 	if p.param != nil {
 		ctx["Param"] = p.param
+		// 同时展开 param 到顶层，支持直接引用
 		for k, v := range p.param {
 			ctx[k] = v
 		}
 	}
 	p.mu.RUnlock()
 
-	// 添加 Metadata 和其他动态数据
+	// 添加 Metadata 和其他动态数据（这里 Metadata 返回的是拷贝，安全）
 	metadata := p.Metadata()
 	if metadata != nil {
 		ctx["Metadata"] = metadata
@@ -977,14 +983,20 @@ func (p *PipelineImpl) extractOutput(ctx context.Context, node Node, stepResult 
 		return fmt.Errorf("failed to extract data from node %s: %w", node.Id(), err)
 	}
 
-	// 保存到 metadata
+	// 保存到 metadata（加锁防止并发写入）
 	if len(extracted) > 0 {
-		metadata := p.Metadata()
+		p.mu.Lock()
+		defer p.mu.Unlock()
+
+		// 确保 metadata 已初始化
+		if p.metadata == nil {
+			p.metadata = make(Metadata)
+		}
 
 		// 保存到内存 metadata
 		for key, value := range extracted {
 			metadataKey := fmt.Sprintf("%s.%s", node.Id(), key)
-			metadata[metadataKey] = value
+			p.metadata[metadataKey] = value
 			fmt.Printf("Extracted data: %s = %v\n", metadataKey, value)
 		}
 

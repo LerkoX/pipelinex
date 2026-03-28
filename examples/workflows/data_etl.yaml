@@ -19,7 +19,7 @@ Executors:
     type: local
     config:
       shell: bash
-      workdir: /tmp/data-pipeline
+      workdir: /tmp
 
 Graph: |
   stateDiagram-v2
