@@ -331,6 +331,171 @@ func TestRuntimeImpl_ConcurrentAccess(t *testing.T) {
 	}
 }
 
+// TestRuntimeImpl_MultiPipelineConcurrency 测试多条流水线并发的完整生命周期
+// 测试配置使用包含节点间数据传递的 node_data_passing.yaml
+// 验证点：
+// 1. 所有流水线成功启动
+// 2. 所有流水线执行完成（等待 Done() 通道）
+// 3. 验证每个流水线的最终状态为 SUCCESS
+// 4. 验证节点间数据传递正确（Generate.value 和 Generate.message）
+// 5. 验证事件监听器的线程安全性
+func TestRuntimeImpl_MultiPipelineConcurrency(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx)
+
+	const numPipelines = 15 // 并发流水线数量
+
+	// 使用带缓冲的 channel 收集错误，避免 goroutine 阻塞
+	errors := make(chan error, numPipelines)
+
+	// 使用 WaitGroup 等待所有 goroutine 完成
+	var wg sync.WaitGroup
+
+	// 使用 channel 收集每个流水线的结果
+	type pipelineResult struct {
+		id     string
+		status string
+		event  int
+	}
+	results := make(chan pipelineResult, numPipelines)
+
+	// 记录开始时间用于性能监控
+	startTime := time.Now()
+
+	// 串行准备所有配置（避免模板引擎并发竞争）
+	configs := make([]string, numPipelines)
+	for i := 0; i < numPipelines; i++ {
+		configs[i] = loadTestConfig(t, "node_data_passing.yaml")
+	}
+
+	// 并发启动多个流水线
+	for i := 0; i < numPipelines; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+
+			pipelineConfig := configs[id]
+			pipelineID := fmt.Sprintf("multi-concurrent-pipeline-%d", id)
+
+			// 为每个流水线创建独立的监听器
+			listener := NewRecordingListener()
+
+			// 启动异步流水线
+			pipeline, err := runtime.RunAsync(ctx, pipelineID, pipelineConfig, listener)
+			if err != nil {
+				errors <- fmt.Errorf("pipeline %d RunAsync failed: %w", id, err)
+				return
+			}
+
+			// 等待流水线执行完成，最多等待10秒（因为有3个节点串行）
+			select {
+			case <-pipeline.Done():
+				// 流水线正常完成，获取状态
+				status := pipeline.Status()
+				eventCount := listener.Count(PipelineNodeFinish)
+
+				// 验证数据传递是否成功
+				metadata := pipeline.Metadata()
+				if metadata == nil {
+					errors <- fmt.Errorf("pipeline %s: metadata is nil", pipelineID)
+					return
+				}
+
+				// 验证 Generate 节点的数据是否正确传递
+				if value, ok := metadata["Generate.value"]; !ok {
+					errors <- fmt.Errorf("pipeline %s: Generate.value not found in metadata", pipelineID)
+				} else {
+					// 允许 int 或 float64 类型
+					switch v := value.(type) {
+					case string:
+						if v != "42" {
+							errors <- fmt.Errorf("pipeline %s: expected Generate.value=42, got %v", pipelineID, v)
+						}
+					case float64:
+						if v != 42.0 {
+							errors <- fmt.Errorf("pipeline %s: expected Generate.value=42.0, got %v", pipelineID, v)
+						}
+					case int:
+						if v != 42 {
+							errors <- fmt.Errorf("pipeline %s: expected Generate.value=42, got %v", pipelineID, v)
+						}
+					}
+				}
+
+				if message, ok := metadata["Generate.message"]; !ok {
+					errors <- fmt.Errorf("pipeline %s: Generate.message not found in metadata", pipelineID)
+				} else if message != "hello world" {
+					errors <- fmt.Errorf("pipeline %s: expected Generate.message='hello world', got %v", pipelineID, message)
+				}
+
+				results <- pipelineResult{id: pipelineID, status: status, event: eventCount}
+
+				t.Logf("Pipeline %s completed with status: %s", pipelineID, status)
+
+			case <-time.After(10 * time.Second):
+				// 超时处理
+				errors <- fmt.Errorf("pipeline %s timed out after 10 seconds", pipelineID)
+				// 尝试取消超时的流水线
+				if cancelErr := runtime.Cancel(ctx, pipelineID); cancelErr != nil {
+					t.Logf("Failed to cancel timeout pipeline %s: %v", pipelineID, cancelErr)
+				}
+			}
+		}(i)
+	}
+
+	// 等待所有 goroutine 完成
+	wg.Wait()
+
+	// 关闭 results channel
+	close(results)
+
+	// 收集所有错误
+	close(errors)
+	errorCount := 0
+	for err := range errors {
+		errorCount++
+		t.Errorf("Pipeline execution error: %v", err)
+	}
+
+	// 如果有错误，提前返回
+	if errorCount > 0 {
+		t.Fatalf("%d pipeline(s) failed to execute", errorCount)
+	}
+
+	// 验证所有流水线的执行结果
+	completedPipelines := 0
+	for result := range results {
+		completedPipelines++
+
+		// 验证流水线状态为 SUCCESS
+		if result.status != StatusSuccess {
+			t.Errorf("Pipeline %s expected status %s, got %s",
+				result.id, StatusSuccess, result.status)
+		}
+
+		// 验证至少有一个节点执行完成（应该有3个：Generate, Process, Consume）
+		if result.event != 3 {
+			t.Errorf("Pipeline %s expected 3 finished nodes, got %d", result.id, result.event)
+		}
+	}
+
+	// 验证所有流水线都完成了
+	if completedPipelines != numPipelines {
+		t.Errorf("Expected %d completed pipelines, got %d", numPipelines, completedPipelines)
+	}
+
+	// 性能监控
+	duration := time.Since(startTime)
+	avgDuration := duration / time.Duration(numPipelines)
+
+	t.Logf("Multi-pipeline concurrency test completed:")
+	t.Logf("  - Total pipelines: %d", numPipelines)
+	t.Logf("  - Total duration: %v", duration)
+	t.Logf("  - Average per pipeline: %v", avgDuration)
+	t.Logf("  - All pipelines completed successfully")
+	t.Logf("  - All data transfers verified")
+}
+
 // TestListener test listener implementation
 type TestListener struct{}
 

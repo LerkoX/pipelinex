@@ -1,0 +1,135 @@
+Version: "1.0"
+Name: file-processing-pipeline
+
+Metadate:
+  type: in-config
+  description: "文件处理元数据，存储日志目录、文件统计等信息"
+  data:
+    logDir: "{{ Param.projectDir }}/logs"
+    archiveDir: "{{ Param.projectDir }}/archives"
+    timestamp: "{{ Param.timestamp }}"
+
+Param:
+  projectDir: "/var/www/myapp"
+  timestamp: "2024-03-28"
+  retentionDays: 7
+  logPattern: "*.log"
+
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+      workdir: /tmp/pipeline
+
+Graph: |
+  stateDiagram-v2
+    [*] --> Start
+    Start --> CreateDir
+    Start --> CompressLogs
+    Start --> GenerateManifest
+    CreateDir --> Merge
+    CompressLogs --> Merge
+    GenerateManifest --> Merge
+    Merge --> Cleanup
+    Cleanup --> [*]
+
+Nodes:
+  Start:
+    executor: local
+    name: "初始化"
+    description: "准备文件处理环境"
+    steps:
+      - name: init
+        description: "创建工作目录并验证环境"
+        run: |
+          echo "Initializing file processing at {{ Param.timestamp }}"
+          echo '```pipelinex-json'
+          echo '{"startTime": "{{ Param.timestamp }}", "status": "ready"}'
+          echo '```'
+
+  CreateDir:
+    executor: local
+    name: "创建日志目录"
+    description: "确保日志目录和归档目录存在"
+    steps:
+      - name: create-log-dir
+        description: "创建日志目录"
+        run: |
+          mkdir -p {{ Param.projectDir }}/logs
+          echo "Log directory created"
+      - name: create-archive-dir
+        description: "创建归档目录"
+        run: |
+          mkdir -p {{ Param.projectDir }}/archives
+          echo "Archive directory created"
+          echo '```pipelinex-json'
+          echo '{"logDir": "{{ Param.projectDir }}/logs", "archiveDir": "{{ Param.projectDir }}/archives"}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  CompressLogs:
+    executor: local
+    name: "压缩日志文件"
+    description: "将日志文件压缩并移到归档目录"
+    steps:
+      - name: compress
+        description: "压缩日志文件"
+        run: |
+          cd {{ Param.projectDir }}/logs
+          timestamp=$(date +%Y%m%d)
+          archive="{{ Param.projectDir }}/archives/logs_${timestamp}.tar.gz"
+          tar -czf $archive $(find . -name "{{ Param.logPattern }}" -type f -mtime +1 2>/dev/null | xargs -n 1) 2>/dev/null
+          echo "Compressed logs to: $archive"
+          echo '```pipelinex-json'
+          echo '{"archiveFile": "'$archive'", "compressedCount": "1"}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  GenerateManifest:
+    executor: local
+    name: "生成文件清单"
+    description: "生成归档文件的详细清单"
+    steps:
+      - name: generate
+        description: "创建归档清单文件"
+        run: |
+          cd {{ Param.projectDir }}/archives
+          manifest="manifest_{{ Param.timestamp }}.txt"
+          echo "Archive Manifest - {{ Param.timestamp }}" > $manifest
+          echo "Generated at: $(date)" >> $manifest
+          ls -lh *.tar.gz >> $manifest 2>/dev/null || true
+          echo "Manifest created: $manifest"
+          echo '```pipelinex-json'
+          echo '{"manifestFile": "'$manifest'", "status": "generated"}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  Merge:
+    executor: local
+    name: "合并汇总"
+    description: "汇总所有任务结果"
+    steps:
+      - name: summary
+        description: "生成处理摘要"
+        run: |
+          echo "=== File Processing Summary ==="
+          echo "Log Directory: {{ CreateDir.logDir }}"
+          echo "Archive Directory: {{ CreateDir.archiveDir }}"
+          echo "Archive File: {{ CompressLogs.archiveFile }}"
+          echo "Manifest: {{ GenerateManifest.manifestFile }}"
+
+  Cleanup:
+    executor: local
+    name: "清理旧文件"
+    description: "删除超过保留天数的归档文件"
+    steps:
+      - name: remove-old
+        description: "清理旧归档文件"
+        run: |
+          cd {{ Param.projectDir }}/archives
+          find . -name "*.tar.gz" -type f -mtime +{{ Param.retentionDays }} -delete 2>/dev/null || true
+          echo "Cleanup completed"

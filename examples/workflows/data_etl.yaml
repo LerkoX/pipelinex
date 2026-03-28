@@ -1,0 +1,216 @@
+Version: "1.0"
+Name: data-collection-pipeline
+
+Metadate:
+  type: in-config
+  description: "数据采集和处理元数据"
+  data:
+    collectionDate: "{{ Param.date }}"
+    outputDir: "{{ Param.baseDir }}/reports/{{ Param.date }}"
+
+Param:
+  date: "2024-03-28"
+  baseDir: "/data/analytics"
+  apiBaseUrl: "https://api.example.com/v1"
+  apiTimeout: 30
+
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+      workdir: /tmp/data-pipeline
+
+Graph: |
+  stateDiagram-v2
+    [*] --> Start
+    Start --> CollectUsers
+    Start --> CollectOrders
+    Start --> CollectProducts
+    CollectUsers --> Transform
+    CollectOrders --> Transform
+    CollectProducts --> Transform
+    Transform --> UserReport
+    Transform --> SalesReport
+    UserReport --> Merge
+    SalesReport --> Merge
+    Merge --> Notify
+    Notify --> [*]
+
+Nodes:
+  Start:
+    executor: local
+    name: "初始化"
+    description: "准备数据采集环境"
+    steps:
+      - name: setup
+        description: "创建输出目录"
+        run: |
+          echo "Starting data collection for {{ Param.date }}"
+          outputDir="{{ Param.baseDir }}/reports/{{ Param.date }}"
+          mkdir -p $outputDir
+          echo '```pipelinex-json'
+          echo '{"outputDir": "'$outputDir'", "startTime": "'$(date -Iseconds)'"}'
+          echo '```'
+
+  CollectUsers:
+    executor: local
+    name: "数据采集用户数据"
+    description: "从API获取用户信息"
+    steps:
+      - name: fetch-users
+        description: "获取用户列表"
+        run: |
+          echo "Fetching users from {{ Param.apiBaseUrl }}/users"
+          outputDir="{{ Param.baseDir }}/raw/{{ Param.date }}"
+          mkdir -p $outputDir
+          echo '{"users": [{"id": "1", "name": "Alice"}, {"id": "2", "name": "Bob"}], "total": 2}' > $outputDir/users.json
+          echo "Users data saved to $outputDir/users.json"
+      - name: validate
+        description: "验证用户数据"
+        run: |
+          outputDir="{{ Param.baseDir }}/raw/{{ Param.date }}"
+          echo "Collected 2 users"
+          echo '```pipelinex-json'
+          echo '{"userCount": 2, "dataFile": "'$outputDir/users.json'"}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  CollectOrders:
+    executor: local
+    name: "数据采集订单数据"
+    description: "从API获取订单信息"
+    steps:
+      - name: fetch-orders
+        description: "获取订单列表"
+        run: |
+          echo "Fetching orders from {{ Param.apiBaseUrl }}/orders"
+          outputDir="{{ Param.baseDir }}/raw/{{ Param.date }}"
+          mkdir -p $outputDir
+          echo '{"orders": [{"id": "101", "amount": 100.0}, {"id": "102", "amount": 200.0}], "count": 2, "revenue": 300.0}' > $outputDir/orders.json
+          echo "Orders data saved to $outputDir/orders.json"
+      - name: validate
+        description: "验证订单数据"
+        run: |
+          outputDir="{{ Param.baseDir }}/raw/{{ Param.date }}"
+          echo "Collected 2 orders, total revenue: 300.0"
+          echo '```pipelinex-json'
+          echo '{"orderCount": 2, "totalRevenue": 300.0, "dataFile": "'$outputDir/orders.json'"}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  CollectProducts:
+    executor: local
+    name: "数据采集产品数据"
+    description: "从API获取产品信息"
+    steps:
+      - name: fetch-products
+        description: "获取产品列表"
+        run: |
+          echo "Fetching products from {{ Param.apiBaseUrl }}/products"
+          outputDir="{{ Param.baseDir }}/raw/{{ Param.date }}"
+          mkdir -p $outputDir
+          echo '{"products": [{"id": "1", "name": "Product A"}, {"id": "2", "name": "Product B"}], "total": 2}' > $outputDir/products.json
+          echo "Products data saved to $outputDir/products.json"
+      - name: validate
+        description: "验证产品数据"
+        run: |
+          outputDir="{{ Param.baseDir }}/raw/{{ Param.date }}"
+          echo "Collected 2 products"
+          echo '```pipelinex-json'
+          echo '{"productCount": 2, "dataFile": "'$outputDir/products.json'"}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  Transform:
+    executor: local
+    name: "数据转换"
+    description: "标准化和转换数据格式"
+    steps:
+      - name: normalize
+        description: "标准化所有数据格式"
+        run: |
+          echo "Normalizing data formats"
+          outputDir="{{ Param.baseDir }}/raw/{{ Param.date }}"
+          targetDir="{{ Param.baseDir }}/processed/{{ Param.date }}"
+          mkdir -p $targetDir
+          cp $outputDir/users.json $targetDir/users_normalized.json
+          cp $outputDir/orders.json $targetDir/orders_normalized.json
+          cp $outputDir/products.json $targetDir/products_normalized.json
+          echo "Data normalization completed"
+          echo '```pipelinex-json'
+          echo '{"processedDir": "'$targetDir'", "status": "normalized"}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  UserReport:
+    executor: local
+    name: "生成用户报告"
+    description: "生成用户分析报告"
+    steps:
+      - name: analyze
+        description: "分析用户数据并生成报告"
+        run: |
+          targetDir="{{ Param.baseDir }}/processed/{{ Param.date }}"
+          reportDir="{{ Param.baseDir }}/reports/{{ Param.date }}"
+          mkdir -p $reportDir
+          echo '{"date": "{{ Param.date }}", "type": "user_report", "totalUsers": 2, "newUsers": 1}' > $reportDir/user_report.json
+          echo "User report generated"
+          echo '```pipelinex-json'
+          echo '{"userReport": "'$reportDir/user_report.json'", "totalUsers": 2}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  SalesReport:
+    executor: local
+    name: "生成销售报告"
+    description: "生成销售分析报告"
+    steps:
+      - name: analyze
+        description: "分析订单数据并生成报告"
+        run: |
+          targetDir="{{ Param.baseDir }}/processed/{{ Param.date }}"
+          reportDir="{{ Param.baseDir }}/reports/{{ Param.date }}"
+          mkdir -p $reportDir
+          echo '{"date": "{{ Param.date }}", "type": "sales_report", "totalRevenue": 300.0, "completedOrders": 2, "pendingOrders": 0}' > $reportDir/sales_report.json
+          echo "Sales report generated"
+          echo '```pipelinex-json'
+          echo '{"salesReport": "'$reportDir/sales_report.json'", "totalRevenue": 300.0}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  Merge:
+    executor: local
+    name: "合并报告"
+    description: "汇总所有报告生成总览"
+    steps:
+      - name: combine
+        description: "创建综合报告索引"
+        run: |
+          reportDir="{{ Param.baseDir }}/reports/{{ Param.date }}"
+          echo '{"date": "{{ Param.date }}", "reports": ["user_report.json", "sales_report.json"], "generatedAt": "'$(date -Iseconds)'"}' > $reportDir/index.json
+          echo "Combined report index created"
+          echo '```pipelinex-json'
+          echo '{"indexFile": "'$reportDir/index.json'", "reportDir": "'$reportDir'"}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  Notify:
+    executor: local
+    name: "通知完成"
+    description: "发送完成通知"
+    steps:
+      - name: send
+        description: "发送通知消息"
+        run: |
+          echo "Data collection completed for {{ Param.date }}"
+          echo "Reports available at: {{ Merge.reportDir }}"
+          echo "Total users: {{ UserReport.totalUsers }}"
+          echo "Total revenue: {{ SalesReport.totalRevenue }}"
