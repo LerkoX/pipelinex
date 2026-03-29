@@ -720,7 +720,7 @@ func (p *PipelineImpl) handleResult(ctx context.Context, node Node, _ Executor, 
 	case []byte:
 		// 实时输出
 	output := string(v)
-		fmt.Print(output)
+		// fmt.Print(output) - removed to avoid concurrent output issues
 		handler.output = output
 	}
 
@@ -978,6 +978,7 @@ func (p *PipelineImpl) extractOutput(ctx context.Context, node Node, stepResult 
 	}
 
 	// 执行提取
+
 	extracted, err := extractor.Extract(fullOutput)
 	if err != nil {
 		return fmt.Errorf("failed to extract data from node %s: %w", node.Id(), err)
@@ -996,8 +997,7 @@ func (p *PipelineImpl) extractOutput(ctx context.Context, node Node, stepResult 
 		// 保存到内存 metadata
 		for key, value := range extracted {
 			metadataKey := fmt.Sprintf("%s.%s", node.Id(), key)
-			p.metadata[metadataKey] = value
-			fmt.Printf("Extracted data: %s = %v\n", metadataKey, value)
+			p.metadata[metadataKey] = convertBoolToString(value)
 		}
 
 		// 如果有 metadata store，同步保存

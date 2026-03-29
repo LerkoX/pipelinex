@@ -194,13 +194,13 @@ func (l *LocalExecutor) executeCommandWithStreaming(ctx context.Context, command
 	// 读取stdout
 	go func() {
 		defer wg.Done()
-		l.streamOutput(stdout, outputCallback)
+		l.streamOutputLine(stdout, outputCallback)
 	}()
 
 	// 读取stderr
 	go func() {
 		defer wg.Done()
-		l.streamOutput(stderr, outputCallback)
+		l.streamOutputLine(stderr, outputCallback)
 	}()
 
 	// 等待输出读取完成

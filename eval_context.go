@@ -20,6 +20,33 @@ func (c *DGAEvaluationContext) Get(key string) (any, bool) {
 	return val, ok
 }
 
+// convertBoolToString 递归地将布尔值转换为字符串
+func convertBoolToString(v any) any {
+	switch val := v.(type) {
+	case bool:
+		if val {
+			return "true"
+		}
+		return "false"
+	case map[string]any:
+		result := make(map[string]any)
+		for k, v := range val {
+			result[k] = convertBoolToString(v)
+		}
+		return result
+	case map[interface{}]interface{}:
+		result := make(map[string]any)
+		for k, v := range val {
+			if key, ok := k.(string); ok {
+				result[key] = convertBoolToString(v)
+			}
+		}
+		return result
+	default:
+		return v
+	}
+}
+
 // All 返回上下文中所有数据的副本
 // 合并了：基础数据、节点数据、流水线数据
 // 将 "NodeID.key" 格式的扁平键转换为嵌套结构
@@ -49,7 +76,8 @@ func (c *DGAEvaluationContext) All() map[string]any {
 					result[k] = v
 				}
 				// 同时提供 Param.xxx 的访问方式
-				result["Param"] = pipelineImpl.param
+				convertedParam := convertBoolToString(pipelineImpl.param)
+				result["Param"] = convertedParam
 			}
 		}
 
@@ -60,7 +88,7 @@ func (c *DGAEvaluationContext) All() map[string]any {
 				if dotIdx := lastIndexOfByte(k, '.'); dotIdx > 0 {
 					nodeID := k[:dotIdx]
 					keyName := k[dotIdx+1:]
-					// 如果节点ID 的嵌套对象不存在，创建它
+					// 如果节点ID 的嵌套对象对象不存在，创建它
 					if _, exists := result[nodeID]; !exists {
 						result[nodeID] = make(map[string]any)
 					}
@@ -74,6 +102,12 @@ func (c *DGAEvaluationContext) All() map[string]any {
 				}
 			}
 		}
+	}
+
+	// 转换所有布尔值为字符串
+	for k, v := range result {
+		converted := convertBoolToString(v)
+		result[k] = converted
 	}
 
 	return result
