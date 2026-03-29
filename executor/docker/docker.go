@@ -178,15 +178,101 @@ func (d *DockerExecutor) Transfer(ctx context.Context, resultChan chan<- any, co
 		default:
 		}
 
-		// 处理不同类型的数据
-		switch v := data.(type) {
-		case string:
-			// 执行命令（实时输出）
-			d.executeCommandStreaming(execCtx, v, resultChan)
-		default:
-			resultChan <- fmt.Errorf("unsupported data type: %T", data)
+		// 处理 commandWrapper 类型
+		cmdWrapper, ok := data.( executor.CommandWrapper)
+		if !ok {
+			resultChan <- fmt.Errorf("unsupported data type: %T, expected CommandWrapper", data)
+			continue
 		}
+		// 执行命令（携带步骤名称）
+		d.executeCommandStreaming(execCtx, cmdWrapper.Command, cmdWrapper.StepName, resultChan)
 	}
+}
+
+// executeCommandStreaming 执行命令并实时流式输出
+func (d *DockerExecutor) executeCommandStreaming(ctx context.Context, command string, stepName string, resultChan chan<- any) {
+	startTime := time.Now()
+
+	err := d.executeCommandInContainerStreaming(ctx, command, func(data []byte) {
+		resultChan <- data
+	})
+
+	// 发送最终结果
+	resultChan <- &executor.StepResult{
+		StepName:   stepName,
+		Command:    command,
+		Output:     "",
+		Error:      err,
+		StartTime:  startTime,
+		FinishTime: time.Now(),
+	}
+}
+
+// executeCommandInContainerStreaming 在容器中执行命令并实时流式输出
+func (d *DockerExecutor) executeCommandInContainerStreaming(ctx context.Context, command string, outputCallback func([]byte)) error {
+	d.mu.RLock()
+	containerID := d.containerID
+	d.mu.RUnlock()
+
+	if containerID == "" {
+		return fmt.Errorf("container not prepared")
+	}
+
+	// 检测shell类型
+	shell := d.detectShell()
+
+	// 创建执行配置
+	execConfig := container.ExecOptions{
+		Cmd:          []string{shell, "-c", command},
+		AttachStdout: true,
+		AttachStderr: true,
+		Tty:          false,
+	}
+
+	// 创建执行
+	execResp, err := d.client.ContainerExecCreate(ctx, containerID, execConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create exec: %w", err)
+	}
+
+	// 附加到执行
+	attachResp, err := d.client.ContainerExecAttach(ctx, execResp.ID, container.ExecAttachOptions{
+		Tty: false,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to attach to exec: %w", err)
+	}
+	defer attachResp.Close()
+
+	// 创建输出回调写入器
+	writer := &callbackWriter{
+		callback: outputCallback,
+	}
+
+// 读取输出并回调
+	_, err = stdcopy.StdCopy(writer, writer, attachResp.Reader)
+	if err != nil && err != io.EOF {
+		return fmt.Errorf("failed to read output: %w", err)
+	}
+
+	// 等待执行完成
+	for {
+		inspectResp, err := d.client.ContainerExecInspect(ctx, execResp.ID)
+		if err != nil {
+			return fmt.Errorf("failed to inspect exec: %w", err)
+		}
+
+		if !inspectResp.Running {
+			if inspectResp.ExitCode != 0 {
+				return fmt.Errorf("command exited with code %d", inspectResp.ExitCode)
+			}
+			break
+		}
+
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return nil
 }
 
 // executeCommandInContainer 在容器中执行命令
@@ -226,7 +312,8 @@ func (d *DockerExecutor) executeCommandInContainer(ctx context.Context, command 
 	defer attachResp.Close()
 
 	// 读取输出
-	var stdout, stderr strings.Builder
+	var stdout strings.Builder
+	var stderr strings.Builder
 	_, err = stdcopy.StdCopy(&stdout, &stderr, attachResp.Reader)
 	if err != nil && err != io.EOF {
 		return "", fmt.Errorf("failed to read output: %w", err)
@@ -241,7 +328,7 @@ func (d *DockerExecutor) executeCommandInContainer(ctx context.Context, command 
 
 		if !inspectResp.Running {
 			if inspectResp.ExitCode != 0 {
-				return stdout.String() + stderr.String(), fmt.Errorf("command exited with code %d: %s", inspectResp.ExitCode, stderr.String())
+				return stdout.String() + stderr.String(), fmt.Errorf("command exited with code %d", inspectResp.ExitCode)
 			}
 			break
 		}
@@ -252,206 +339,8 @@ func (d *DockerExecutor) executeCommandInContainer(ctx context.Context, command 
 	return stdout.String(), nil
 }
 
-// executeCommandStreaming 执行命令并实时流式输出
-func (d *DockerExecutor) executeCommandStreaming(ctx context.Context, command string, resultChan chan<- any) {
-	startTime := time.Now()
-
-	err := d.executeCommandInContainerStreaming(ctx, command, func(data []byte) {
-		resultChan <- data
-	})
-
-	// 发送最终结果
-	resultChan <- &executor.StepResult{
-		Command:    command,
-		Output:     "",
-		Error:      err,
-		StartTime:  startTime,
-		FinishTime: time.Now(),
-	}
-}
-
-// executeCommandInContainerStreaming 在容器中执行命令并实时流式输出
-// 当 ctx 被取消时，会向进程发送 Ctrl+C 信号 (\x03)
-func (d *DockerExecutor) executeCommandInContainerStreaming(ctx context.Context, command string, outputCallback func([]byte)) error {
-	containerID, useTTY, err := d.getContainerInfo()
-	if err != nil {
-		return err
-	}
-
-	// 创建 stdin pipe，用于发送 Ctrl+C
-	stdinReader, stdinWriter := io.Pipe()
-	defer stdinWriter.Close()
-
-	execID, attachResp, err := d.createAndAttachExec(ctx, containerID, command, useTTY, stdinReader)
-	if err != nil {
-		return err
-	}
-	defer attachResp.Close()
-
-	// 创建一个内部可取消的上下文
-	execCtx, execCancel := context.WithCancel(ctx)
-	defer execCancel()
-
-	// 注册取消函数，供外部调用
-	d.mu.Lock()
-	d.currentExecCancel = func() {
-		// 发送 Ctrl+C (\x03)
-		stdinWriter.Write([]byte{0x03})
-		stdinWriter.Close()
-		execCancel()
-	}
-	d.mu.Unlock()
-
-	// 监听上下文取消，发送 Ctrl+C
-	go func() {
-		<-ctx.Done()
-		d.mu.RLock()
-		cancel := d.currentExecCancel
-		d.mu.RUnlock()
-		if cancel != nil {
-			cancel()
-		}
-	}()
-
-	outputDone := d.startOutputStream(execCtx, attachResp, outputCallback, useTTY)
-
-	err = d.waitForExecCompletion(execCtx, execID, attachResp, outputDone)
-
-	// 清理
-	stdinWriter.Close()
-	d.mu.Lock()
-	d.currentExecCancel = nil
-	d.mu.Unlock()
-
-	if err != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if execCtx.Err() != nil {
-			return execCtx.Err()
-		}
-		return err
-	}
-
-	return nil
-}
-
-// getContainerInfo 获取容器信息
-func (d *DockerExecutor) getContainerInfo() (string, bool, error) {
-	d.mu.RLock()
-	containerID := d.containerID
-	useTTY := d.tty
-	d.mu.RUnlock()
-
-	if containerID == "" {
-		return "", false, fmt.Errorf("container not prepared")
-	}
-	return containerID, useTTY, nil
-}
-
-// createAndAttachExec 创建并附加到 exec
-func (d *DockerExecutor) createAndAttachExec(ctx context.Context, containerID, command string, useTTY bool, stdin io.Reader) (string, types.HijackedResponse, error) {
-	shell := d.detectShell()
-
-	execConfig := container.ExecOptions{
-		Cmd:          []string{shell, "-c", command},
-		AttachStdout: true,
-		AttachStderr: true,
-		AttachStdin:  true,
-		Tty:          useTTY,
-	}
-
-	execResp, err := d.client.ContainerExecCreate(ctx, containerID, execConfig)
-	if err != nil {
-		return "", types.HijackedResponse{}, fmt.Errorf("failed to create exec: %w", err)
-	}
-
-	attachResp, err := d.client.ContainerExecAttach(ctx, execResp.ID, container.ExecAttachOptions{Tty: useTTY})
-	if err != nil {
-		return "", types.HijackedResponse{}, fmt.Errorf("failed to attach to exec: %w", err)
-	}
-
-	// 将 stdin 连接到 attach 连接
-	if stdin != nil {
-		go func() {
-			io.Copy(attachResp.Conn, stdin)
-		}()
-	}
-
-	return execResp.ID, attachResp, nil
-}
-
-// startOutputStream 启动输出流读取
-func (d *DockerExecutor) startOutputStream(ctx context.Context, attachResp types.HijackedResponse, outputCallback func([]byte), useTTY bool) chan error {
-	outputDone := make(chan error, 1)
-
-	go func() {
-		if useTTY {
-			outputDone <- d.readTTYOutput(ctx, attachResp.Reader, outputCallback)
-		} else {
-			outputDone <- d.readNonTTYOutput(ctx, attachResp, outputCallback)
-		}
-	}()
-
-	return outputDone
-}
-
-// readTTYOutput 读取 TTY 模式输出
-func (d *DockerExecutor) readTTYOutput(ctx context.Context, reader io.Reader, outputCallback func([]byte)) error {
-	buf := make([]byte, 4096)
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		n, err := reader.Read(buf)
-		if n > 0 && outputCallback != nil {
-			outputCallback(buf[:n])
-		}
-		if err != nil {
-			if err != io.EOF {
-				return err
-			}
-			return nil
-		}
-	}
-}
-
-// readNonTTYOutput 读取非 TTY 模式输出
-func (d *DockerExecutor) readNonTTYOutput(ctx context.Context, attachResp types.HijackedResponse, outputCallback func([]byte)) error {
-	writer := &callbackWriter{callback: outputCallback}
-	buf := make([]byte, 4096)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		if conn, ok := attachResp.Conn.(interface{ SetReadDeadline(time.Time) error }); ok {
-			_ = conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
-		}
-
-		n, err := attachResp.Reader.Read(buf)
-		if n > 0 {
-			_, _ = writer.Write(buf[:n])
-		}
-		if err != nil {
-			if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
-				continue
-			}
-			if err != io.EOF {
-				return err
-			}
-			return nil
-		}
-	}
-}
-
 // waitForExecCompletion 等待执行完成
+// 修复：添加 channel 关闭检查，避免资源泄漏
 func (d *DockerExecutor) waitForExecCompletion(ctx context.Context, execID string, attachResp types.HijackedResponse, outputDone chan error) error {
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
@@ -459,34 +348,46 @@ func (d *DockerExecutor) waitForExecCompletion(ctx context.Context, execID strin
 	for {
 		select {
 		case <-ctx.Done():
+			// 上下文取消，清理资源
 			attachResp.Close()
+			// 从 outputDone 读取（确保 channel 已关闭）
 			<-outputDone
 			return ctx.Err()
-		case err := <-outputDone:
+		case err, ok := <-outputDone:
+			if !ok {
+				// Channel 已关闭，正常退出
+				return nil
+			}
 			if err == context.Canceled || err == context.DeadlineExceeded {
 				return ctx.Err()
 			}
+			// 收到错误，返回它
+			return err
 		case <-ticker.C:
-		}
-
-		inspectResp, err := d.client.ContainerExecInspect(ctx, execID)
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
+			// 定期检查执行状态
+			inspectResp, err := d.client.ContainerExecInspect(ctx, execID)
+			if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				return fmt.Errorf("failed to inspect exec: %w", err)
 			}
-			return fmt.Errorf("failed to inspect exec: %w", err)
-		}
 
-		if !inspectResp.Running {
-			if inspectResp.ExitCode != 0 {
-				<-outputDone
-				return fmt.Errorf("command exited with code %d", inspectResp.ExitCode)
+			if !inspectResp.Running {
+				if inspectResp.ExitCode != 0 {
+					// 发送错误到 outputDone
+					outputDone <- fmt.Errorf("command exited with code %d", inspectResp.ExitCode)
+					break
+				}
+				// 正常退出
+				break
 			}
-			break
 		}
 	}
 
-	return <-outputDone
+	// 发送 nil 表示成功
+	outputDone <- nil
+	return nil
 }
 
 // 为 callbackWriter 实现 Write 方法
@@ -512,7 +413,6 @@ func (d *DockerExecutor) pullImageIfNeeded(ctx context.Context, imageName string
 	// 检查镜像是否存在
 	_, _, err := d.client.ImageInspectWithRaw(ctx, imageName)
 	if err == nil {
-		// 镜像已存在
 		return nil
 	}
 

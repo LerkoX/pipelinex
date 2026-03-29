@@ -12,8 +12,10 @@
 - 简化本地执行器流输出处理：统一使用 `streamOutput` 方法
 - 完善并行节点执行和步骤级别的运行时恢复功能
 - 优化执行器信息追踪（Kubernetes、Local）
-- 修复步骤级别恢复中的索引映射错误
-- 修复条件边边界判断问题
+- 更新示例工作流运行器：支持命令行参数指定配置文件，移除交互式选择
+- 修复 Docker executor 返回值错误和资源泄漏问题
+- 修复 Kubernetes executor 类型断言安全问题（ContainerStatuses 长度检查）
+- 修复 Docker executor channel 关闭检测，避免资源泄漏
 
 ---
 
