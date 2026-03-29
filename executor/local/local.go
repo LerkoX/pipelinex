@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chenyingqiao/pipelinex/executor"
+	"github.com/LerkoX/pipelinex/executor"
 )
 
 // LocalExecutor 本地执行器实现

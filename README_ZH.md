@@ -23,7 +23,7 @@
 ## 安装
 
 ```bash
-go get github.com/chenyingqiao/pipelinex
+go get github.com/LerkoX/pipelinex
 ```
 
 ## 快速开始
@@ -34,7 +34,7 @@ package main
 import (
     "context"
     "fmt"
-    "github.com/chenyingqiao/pipelinex"
+    "github.com/LerkoX/pipelinex"
 )
 
 func main() {

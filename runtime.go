@@ -3,7 +3,7 @@ package pipelinex
 import (
 	"context"
 
-	"github.com/chenyingqiao/pipelinex/logger"
+	"github.com/LerkoX/pipelinex/logger"
 )
 
 // Runtime 运行时

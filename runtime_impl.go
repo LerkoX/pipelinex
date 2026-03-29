@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chenyingqiao/pipelinex/executor/provider"
-	"github.com/chenyingqiao/pipelinex/logger"
+	"github.com/LerkoX/pipelinex/executor/provider"
+	"github.com/LerkoX/pipelinex/logger"
 	"github.com/tetrafolium/mermaid-check/ast"
 	"github.com/tetrafolium/mermaid-check/parser"
 	"gopkg.in/yaml.v2"

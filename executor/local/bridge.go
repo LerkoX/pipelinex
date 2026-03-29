@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/chenyingqiao/pipelinex/executor"
+	"github.com/LerkoX/pipelinex/executor"
 )
 
 // LocalBridge 本地桥接器实现

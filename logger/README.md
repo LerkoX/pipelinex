@@ -78,8 +78,8 @@ pusher.Push(ctx, logger.Entry{
 ```go
 import (
     "context"
-    "github.com/chenyingqiao/pipelinex"
-    "github.com/chenyingqiao/pipelinex/logger"
+    "github.com/LerkoX/pipelinex"
+    "github.com/LerkoX/pipelinex/logger"
 )
 
 func main() {

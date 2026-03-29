@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chenyingqiao/pipelinex"
-	"github.com/chenyingqiao/pipelinex/logger"
+	"github.com/LerkoX/pipelinex"
+	"github.com/LerkoX/pipelinex/logger"
 )
 
 // PipelineListener 监听流水线事件执行

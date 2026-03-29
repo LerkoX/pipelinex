@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/chenyingqiao/pipelinex/executor"
+	"github.com/LerkoX/pipelinex/executor"
 )
 
 // LocalAdapter 本地适配器实现

@@ -24,7 +24,7 @@ A flexible and extensible CI/CD pipeline execution library for Go, supporting mu
 ## Installation
 
 ```bash
-go get github.com/chenyingqiao/pipelinex
+go get github.com/LerkoX/pipelinex
 ```
 
 ## Quick Start
@@ -35,7 +35,7 @@ package main
 import (
     "context"
     "fmt"
-    "github.com/chenyingqiao/pipelinex"
+    "github.com/LerkoX/pipelinex"
 )
 
 func main() {
