@@ -1,7 +1,6 @@
 package local
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -194,13 +193,13 @@ func (l *LocalExecutor) executeCommandWithStreaming(ctx context.Context, command
 	// 读取stdout
 	go func() {
 		defer wg.Done()
-		l.streamOutputLine(stdout, outputCallback)
+		l.streamOutput(stdout, outputCallback)
 	}()
 
 	// 读取stderr
 	go func() {
 		defer wg.Done()
-		l.streamOutputLine(stderr, outputCallback)
+		l.streamOutput(stderr, outputCallback)
 	}()
 
 	// 等待输出读取完成
@@ -236,16 +235,6 @@ func (l *LocalExecutor) streamOutput(reader io.Reader, callback func([]byte)) {
 		}
 		if err != nil {
 			return
-		}
-	}
-}
-
-// streamOutputLine 按行读取输出并回调
-func (l *LocalExecutor) streamOutputLine(reader io.Reader, callback func([]byte)) {
-	scanner := bufio.NewScanner(reader)
-	for scanner.Scan() {
-		if callback != nil {
-			callback(append(scanner.Bytes(), '\n'))
 		}
 	}
 }

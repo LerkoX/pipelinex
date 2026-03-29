@@ -9,9 +9,9 @@ Executors:
 Graph: |
   stateDiagram-v2
     [*] --> Start
-    Start --> Dev: {% if Param.env == "development" %}true{% endif %}
-    Start --> Staging: {% if Param.env == "staging" %}true{% endif %}
-    Start --> Prod: {% if Param.env == "production" %}true{% endif %}
+    Start --> Dev: {{ Param.env == "development" }}
+    Start --> Staging: {{ Param.env == "staging" }}
+    Start --> Prod: {{ Param.env == "production" }}
     Dev --> FeatureCheck: {{ Param.featureFlag == true }}
     Dev --> SkipFeature: {{ Param.featureFlag == false }}
     Staging --> FeatureCheck: {{ Param.featureFlag == true }}

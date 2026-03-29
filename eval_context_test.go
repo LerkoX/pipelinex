@@ -185,8 +185,8 @@ func TestDGAEvaluationContext_All_MultipleTypes(t *testing.T) {
 		t.Errorf("Expected int=42, got '%v'", all["int"])
 	}
 
-	if all["bool"] != true {
-		t.Errorf("Expected bool=true, got '%v'", all["bool"])
+	if all["bool"] != "true" {
+		t.Errorf("Expected bool='true', got '%v'", all["bool"])
 	}
 
 	if all["float"] != 3.14 {

@@ -1363,7 +1363,7 @@ func TestRuntimeImpl_ConditionalEdge_Metadata(t *testing.T) {
 		t.Errorf("Expected %d PipelineNodeStart events, got %d", expectedStartNodes, listener.Count(PipelineNodeStart))
 	}
 
-	// 验证 metadata 中的值
+	// 验证 metadata 中的值（布尔值已转换为字符串）
 	metadata := pipeline.Metadata()
 	if metadata == nil {
 		t.Fatal("Metadata should not be nil")
@@ -1372,8 +1372,8 @@ func TestRuntimeImpl_ConditionalEdge_Metadata(t *testing.T) {
 	shouldDeploy, ok := metadata["Generate.shouldDeploy"]
 	if !ok {
 		t.Error("Expected Generate.shouldDeploy in metadata")
-	} else if shouldDeploy != true {
-		t.Errorf("Expected Generate.shouldDeploy=true, got %v", shouldDeploy)
+	} else if shouldDeploy != "true" {
+		t.Errorf("Expected Generate.shouldDeploy='true', got %v", shouldDeploy)
 	}
 }
 
