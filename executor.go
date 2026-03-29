@@ -1,7 +1,7 @@
 package pipelinex
 
 import (
-	"github.com/chenyingqiao/pipelinex/executor"
+	"github.com/LerkoX/pipelinex/executor"
 )
 
 // Executor 执行器

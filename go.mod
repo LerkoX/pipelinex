@@ -1,4 +1,4 @@
-module github.com/chenyingqiao/pipelinex
+module github.com/LerkoX/pipelinex
 
 go 1.25.0
 

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chenyingqiao/pipelinex/executor"
+	"github.com/LerkoX/pipelinex/executor"
 	"github.com/google/uuid"
 	"github.com/thoas/go-funk"
 )
@@ -516,9 +516,22 @@ func (p *PipelineImpl) executeNode(ctx context.Context, node Node, exec Executor
 	go p.sendCommands(ctx, node, commandChan, steps)
 
 	// 4. 等待并处理所有结果
-	lastErr, _ := p.waitForResults(ctx, node, exec, resultChan, steps)
+	lastErr, fullOutput := p.waitForResults(ctx, node, exec, resultChan, steps)
 
-	// 5. 更新节点最终状态
+	// 5. 从完整输出中提取元数据
+	if lastErr == nil {
+		// 创建一个虚拟 StepResult 用于提取
+		stepResult := &StepResult{
+			StepName:  node.Id(),
+			Output:    fullOutput,
+			StartTime: time.Now(),
+		}
+		if err := p.extractOutput(ctx, node, stepResult, fullOutput); err != nil {
+			fmt.Printf("Failed to extract output from node %s: %v\n", node.Id(), err)
+		}
+	}
+
+	// 6. 更新节点最终状态
 	if runtimeStatus = node.GetRuntimeStatus(); runtimeStatus != nil {
 		p.updateNodeFinalStatus(runtimeStatus, lastErr)
 		node.SetRuntimeStatus(runtimeStatus)
@@ -666,13 +679,6 @@ func (p *PipelineImpl) waitForResults(ctx context.Context, node Node, exec Execu
 			}
 			resultCount = errCount.count
 			allOutput.WriteString(errCount.output)
-
-			// 在每个 StepResult 处理后，使用完整的累积输出进行提取
-			if stepResult, ok := result.(*StepResult); ok {
-				if err := p.extractOutput(ctx, node, stepResult, allOutput.String()); err != nil {
-					fmt.Printf("Failed to extract output from node %s: %v\n", node.Id(), err)
-				}
-			}
 		}
 	}
 
@@ -720,7 +726,7 @@ func (p *PipelineImpl) handleResult(ctx context.Context, node Node, _ Executor, 
 	case []byte:
 		// 实时输出
 	output := string(v)
-		fmt.Print(output)
+		// fmt.Print(output) - removed to avoid concurrent output issues
 		handler.output = output
 	}
 
@@ -978,6 +984,7 @@ func (p *PipelineImpl) extractOutput(ctx context.Context, node Node, stepResult 
 	}
 
 	// 执行提取
+
 	extracted, err := extractor.Extract(fullOutput)
 	if err != nil {
 		return fmt.Errorf("failed to extract data from node %s: %w", node.Id(), err)
@@ -996,8 +1003,7 @@ func (p *PipelineImpl) extractOutput(ctx context.Context, node Node, stepResult 
 		// 保存到内存 metadata
 		for key, value := range extracted {
 			metadataKey := fmt.Sprintf("%s.%s", node.Id(), key)
-			p.metadata[metadataKey] = value
-			fmt.Printf("Extracted data: %s = %v\n", metadataKey, value)
+			p.metadata[metadataKey] = convertBoolToString(value)
 		}
 
 		// 如果有 metadata store，同步保存

@@ -49,6 +49,49 @@ ETL（Extract, Transform, Load）流水线，包含以下功能：
 
 ---
 
+### 3. CI/CD 部署工作流 (ci_cd_deployment.yaml)
+
+完整的 CI/CD 部署流水线，包含以下功能：
+- 代码检出和构建
+- 单元测试和质量检查
+- 根据质量检查结果决定部署路径
+- 支持多环境部署（dev、staging、production）
+- 生产环境需要人工审核
+
+**特性**：
+- **条件边**：根据测试结果、代码覆盖率、环境类型决定执行路径
+- **数据传递**：每个节点的检查结果通过 `codec-block` 提取供后续条件判断使用
+- **质量门禁**：代码覆盖率不达标时自动跳过部署
+- **人工审核**：生产环境部署需要人工批准
+
+**使用方法**：
+```bash
+# 部署到开发环境（跳过测试）
+# environment: dev
+# skipTests: true
+
+# 部署到预发布环境（需要通过质量检查）
+# environment: staging
+# skipTests: false
+# codeCoverageThreshold: 80
+
+# 部署到生产环境（需要通过质量检查 + 人工审核）
+# environment: production
+# skipTests: false
+# codeCoverageThreshold: 80
+```
+
+**条件边示例**：
+```yaml
+# 只有测试通过才部署到 Staging
+QualityCheck --> DeployStaging: {{ QualityCheck.allTestsPassed == true and QualityCheck.codeCoverage >= Param.codeCoverageThreshold }}
+
+# 质量检查失败则跳过部署
+QualityCheck --> SkipDeploy: {{ QualityCheck.allTestsPassed == false or QualityCheck.codeCoverage < Param.codeCoverageThreshold }}
+```
+
+---
+
 ## 运行工作流
 
 ### 方法一：使用预编译的 runner 工具（推荐）

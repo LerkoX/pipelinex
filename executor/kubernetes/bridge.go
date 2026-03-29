@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/chenyingqiao/pipelinex/executor"
+	"github.com/LerkoX/pipelinex/executor"
 )
 
 // KubernetesBridge Kubernetes桥接器实现

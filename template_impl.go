@@ -20,8 +20,28 @@ func NewPongo2TemplateEngine() TemplateEngine {
 
 // EvaluateBool 评估模板表达式，返回布尔值
 func (e *Pongo2TemplateEngine) EvaluateBool(expression string, ctx map[string]any) (bool, error) {
-	// 确保表达式使用pongo2模板语法
-	template, err := pongo2.FromString(expression)
+	// 使用 if-else 形式评估布尔表达式
+	// 如果表达式包含 {{ }}，则去除外层
+	innerExpr := expression
+	if strings.HasPrefix(expression, "{{") && strings.HasSuffix(expression, "}}") {
+		innerExpr = strings.TrimSpace(expression[2 : len(expression)-2])
+	}
+
+	// 构造 if-else 模板
+	// 将布尔字面量替换为字符串字面量
+	boolProcessedExpr := strings.ReplaceAll(innerExpr, " true ", " 'true' ")
+	boolProcessedExpr = strings.ReplaceAll(boolProcessedExpr, " false ", " 'false' ")
+	boolProcessedExpr = strings.ReplaceAll(boolProcessedExpr, "== true", "== 'true'")
+	boolProcessedExpr = strings.ReplaceAll(boolProcessedExpr, "== false", "== 'false'")
+	boolProcessedExpr = strings.ReplaceAll(boolProcessedExpr, "!= true", "!= 'true'")
+	boolProcessedExpr = strings.ReplaceAll(boolProcessedExpr, "!= false", "!= 'false'")
+	boolProcessedExpr = strings.ReplaceAll(boolProcessedExpr, "> true", "> 'true'")
+	boolProcessedExpr = strings.ReplaceAll(boolProcessedExpr, "< true", "< 'true'")
+	boolProcessedExpr = strings.ReplaceAll(boolProcessedExpr, ">= true", ">= 'true'")
+	boolProcessedExpr = strings.ReplaceAll(boolProcessedExpr, "<= true", "<= 'true'")
+
+	ifTemplate := "{% if " + boolProcessedExpr + " %}true{% else %}false{% endif %}"
+	template, err := pongo2.FromString(ifTemplate)
 	if err != nil {
 		return false, fmt.Errorf("failed to parse expression '%s': %w", expression, err)
 	}
@@ -34,24 +54,7 @@ func (e *Pongo2TemplateEngine) EvaluateBool(expression string, ctx map[string]an
 
 	// 将结果转换为布尔值
 	result = strings.TrimSpace(result)
-
-	// 处理空值
-	if result == "" {
-		return false, nil
-	}
-
-	// 转换为小写进行比较
-	lowerResult := strings.ToLower(result)
-
-	switch lowerResult {
-	case "true", "1", "yes", "on":
-		return true, nil
-	case "false", "0", "no", "off":
-		return false, nil
-	default:
-		// 对于其他值，非空字符串视为true
-		return result != "", nil
-	}
+	return strings.ToLower(result) == "true", nil
 }
 
 // EvaluateString 评估模板表达式，返回字符串

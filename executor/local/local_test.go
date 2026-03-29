@@ -6,7 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/chenyingqiao/pipelinex/executor"
+	"github.com/LerkoX/pipelinex/executor"
+	executorpkg "github.com/LerkoX/pipelinex/executor"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -137,12 +138,15 @@ func TestLocalExecutor_Transfer_SingleCommand(t *testing.T) {
 	} else {
 		testCmd = "echo 'Hello from LocalExecutor'"
 	}
-	commandChan <- testCmd
+	commandChan <- executorpkg.CommandWrapper{
+		StepName: "test-step",
+		Command:  testCmd,
+	}
 	close(commandChan)
 
 	// 接收结果
 	var output []byte
-	var result *executor.StepResult
+	var result *executorpkg.StepResult
 
 	timeout := time.After(5 * time.Second)
 resultLoop:
@@ -187,11 +191,14 @@ func TestLocalExecutor_Transfer_CommandFailure(t *testing.T) {
 	go exec.Transfer(ctx, resultChan, commandChan)
 
 	// 发送一个会失败的命令
-	commandChan <- "exit 1"
+	commandChan <- executorpkg.CommandWrapper{
+		StepName: "failing-step",
+		Command:  "exit 1",
+	}
 	close(commandChan)
 
 	// 接收结果
-	var result *executor.StepResult
+	var result *executorpkg.StepResult
 	timeout := time.After(5 * time.Second)
 
 resultLoop:
@@ -230,16 +237,21 @@ func TestLocalExecutor_EnvConfiguration(t *testing.T) {
 	go exec.Transfer(ctx, resultChan, commandChan)
 
 	// 发送打印环境变量的命令
+	var testCmd string
 	if runtime.GOOS == "windows" {
-		commandChan <- "echo %TEST_VAR%"
+		testCmd = "echo %TEST_VAR%"
 	} else {
-		commandChan <- "echo $TEST_VAR"
+		testCmd = "echo $TEST_VAR"
+	}
+	commandChan <- executorpkg.CommandWrapper{
+		StepName: "env-step",
+		Command:  testCmd,
 	}
 	close(commandChan)
 
 	// 收集输出
 	var output []byte
-	var result *executor.StepResult
+	var result *executorpkg.StepResult
 	timeout := time.After(5 * time.Second)
 
 resultLoop:
@@ -466,17 +478,20 @@ func TestLocalExecutor_CancelContext(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	executor := NewLocalExecutor()
-	require.NoError(t, executor.Prepare(ctx))
-	defer executor.Destruction(ctx)
+	localExecutor := NewLocalExecutor()
+	require.NoError(t, localExecutor.Prepare(ctx))
+	defer localExecutor.Destruction(ctx)
 
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go executor.Transfer(ctx, resultChan, commandChan)
+	go localExecutor.Transfer(ctx, resultChan, commandChan)
 
 	// 发送一个长时间运行的命令
-	commandChan <- "sleep 30"
+	commandChan <- executorpkg.CommandWrapper{
+		StepName: "long-step",
+		Command:  "sleep 30",
+	}
 
 	// 等待命令启动
 	time.Sleep(100 * time.Millisecond)
@@ -496,32 +511,32 @@ func TestLocalExecutor_CancelContext(t *testing.T) {
 }
 
 func TestLocalExecutor_Getters(t *testing.T) {
-	executor := NewLocalExecutor()
+	localExecutor := NewLocalExecutor()
 
 	// 设置值
-	executor.setWorkdir("/test/workdir")
-	executor.setShell("zsh")
-	executor.setTimeout(60 * time.Second)
-	executor.setPTY(true)
-	executor.setPTYSize(120, 40)
+	localExecutor.setWorkdir("/test/workdir")
+	localExecutor.setShell("zsh")
+	localExecutor.setTimeout(60 * time.Second)
+	localExecutor.setPTY(true)
+	localExecutor.setPTYSize(120, 40)
 
 	// 验证getter
-	assert.Equal(t, "/test/workdir", executor.GetWorkdir())
-	assert.Equal(t, "zsh", executor.GetShell())
+	assert.Equal(t, "/test/workdir", localExecutor.GetWorkdir())
+	assert.Equal(t, "zsh", localExecutor.GetShell())
 }
 
 func TestLocalExecutor_UnsupportedDataType(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	executor := NewLocalExecutor()
-	require.NoError(t, executor.Prepare(ctx))
-	defer executor.Destruction(ctx)
+	localExecutor := NewLocalExecutor()
+	require.NoError(t, localExecutor.Prepare(ctx))
+	defer localExecutor.Destruction(ctx)
 
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go executor.Transfer(ctx, resultChan, commandChan)
+	go localExecutor.Transfer(ctx, resultChan, commandChan)
 
 	// 发送不支持的类型
 	commandChan <- 12345

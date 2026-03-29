@@ -1,0 +1,58 @@
+Param:
+  env: "staging"
+  featureFlag: true
+Executors:
+  local:
+    type: local
+    config:
+      shell: bash
+Graph: |
+  stateDiagram-v2
+    [*] --> Start
+    Start --> Dev: {{ Param.env == "development" }}
+    Start --> Staging: {{ Param.env == "staging" }}
+    Start --> Prod: {{ Param.env == "production" }}
+    Dev --> FeatureCheck: {{ Param.featureFlag == true }}
+    Dev --> SkipFeature: {{ Param.featureFlag == false }}
+    Staging --> FeatureCheck: {{ Param.featureFlag == true }}
+    Staging --> SkipFeature: {{ Param.featureFlag == false }}
+    Prod --> Release
+    FeatureCheck --> [*]
+    SkipFeature --> [*]
+    Release --> [*]
+Nodes:
+  Start:
+    executor: local
+    steps:
+      - name: start
+        run: "echo 'Starting pipeline with env={{ Param.env }}'"
+  Dev:
+    executor: local
+    steps:
+      - name: dev
+        run: "echo 'Running for development'"
+  Staging:
+    executor: local
+    steps:
+      - name: staging
+        run: "echo 'Running for staging'"
+  Prod:
+    executor: local
+    steps:
+      - name: prod
+        run: "echo 'Running for production'"
+  FeatureCheck:
+    executor: local
+    steps:
+      - name: feature-check
+        run: "echo 'Checking feature flag: {{ Param.featureFlag }}'"
+  SkipFeature:
+    executor: local
+    steps:
+      - name: skip-feature
+        run: "echo 'Skipping feature checks'"
+  Release:
+    executor: local
+    steps:
+      - name: release
+        run: "echo 'Releasing to production'"

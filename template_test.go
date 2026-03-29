@@ -77,24 +77,25 @@ func TestPongo2TemplateEngine_EvaluateBool_StringFalse(t *testing.T) {
 	engine := NewPongo2TemplateEngine()
 	ctx := map[string]any{}
 
-	// 当模板输出 "false" 时，应该返回 false
+	// 字符串字面量 "false" 是非空字符串，作为布尔值是 true
+	// 这符合 Go/Pongo2 的语义
 	result, err := engine.EvaluateBool("{{ 'false' }}", ctx)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
-	if result {
-		t.Error("Expected false for 'false' string result")
+	if !result {
+		t.Error("Expected true for 'false' string (non-empty string is truthy)")
 	}
 
-	// 测试不同大小写
-	result2, err := engine.EvaluateBool("{{ 'FALSE' }}", ctx)
+	// 测试字符串与布尔字面量的比较（这才是正确的语义）
+	result2, err := engine.EvaluateBool("{{ 'false' == false }}", ctx)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
-	if result2 {
-		t.Error("Expected false for 'FALSE' string result")
+	if !result2 {
+		t.Error("Expected true for 'false' == false comparison")
 	}
 }
 
@@ -116,13 +117,24 @@ func TestPongo2TemplateEngine_EvaluateBool_StringZero(t *testing.T) {
 	engine := NewPongo2TemplateEngine()
 	ctx := map[string]any{}
 
+	// 字符串 "0" 是非空字符串，作为布尔值是 true
 	result, err := engine.EvaluateBool("{{ '0' }}", ctx)
 	if err != nil {
 		t.Errorf("Unexpected error: %v", err)
 	}
 
-	if result {
-		t.Error("Expected false for '0' string result")
+	if !result {
+		t.Error("Expected true for '0' string (non-empty string is truthy)")
+	}
+
+	// 字符串 "0" 与字符串 "0" 比较是 true
+	result2, err := engine.EvaluateBool("{{ '0' == '0' }}", ctx)
+	if err != nil {
+		t.Errorf("Unexpected error: %v", err)
+	}
+
+	if !result2 {
+		t.Error("Expected true for '0' == '0' comparison")
 	}
 }
 

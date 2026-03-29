@@ -3,7 +3,7 @@ package pipelinex
 import (
 	"context"
 
-	"github.com/chenyingqiao/pipelinex/executor"
+	"github.com/LerkoX/pipelinex/executor"
 )
 
 var (

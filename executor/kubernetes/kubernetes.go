@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chenyingqiao/pipelinex/executor"
+	"github.com/LerkoX/pipelinex/executor"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -298,11 +298,12 @@ func (k *KubernetesExecutor) waitForPodRunning(ctx context.Context) error {
 		switch pod.Status.Phase {
 		case corev1.PodRunning:
 			// 检查容器是否就绪
-			if len(pod.Status.ContainerStatuses) > 0 {
-				containerReady := pod.Status.ContainerStatuses[0].Ready
-				if containerReady || pod.Status.ContainerStatuses[0].State.Running != nil {
-					return nil
-				}
+			if len(pod.Status.ContainerStatuses) == 0 {
+				return fmt.Errorf("pod has no container statuses")
+			}
+			containerReady := pod.Status.ContainerStatuses[0].Ready
+			if containerReady || pod.Status.ContainerStatuses[0].State.Running != nil {
+				return nil
 			}
 		case corev1.PodFailed, corev1.PodSucceeded:
 			return fmt.Errorf("pod exited with status: %s", pod.Status.Phase)

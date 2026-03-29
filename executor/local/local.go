@@ -1,7 +1,6 @@
 package local
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -11,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/chenyingqiao/pipelinex/executor"
+	"github.com/LerkoX/pipelinex/executor"
 )
 
 // LocalExecutor 本地执行器实现
@@ -236,16 +235,6 @@ func (l *LocalExecutor) streamOutput(reader io.Reader, callback func([]byte)) {
 		}
 		if err != nil {
 			return
-		}
-	}
-}
-
-// streamOutputLine 按行读取输出并回调
-func (l *LocalExecutor) streamOutputLine(reader io.Reader, callback func([]byte)) {
-	scanner := bufio.NewScanner(reader)
-	for scanner.Scan() {
-		if callback != nil {
-			callback(append(scanner.Bytes(), '\n'))
 		}
 	}
 }

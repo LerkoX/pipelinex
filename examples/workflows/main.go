@@ -1,16 +1,16 @@
 package main
 
 import (
-	"bufio"
 	"context"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/chenyingqiao/pipelinex"
-	"github.com/chenyingqiao/pipelinex/logger"
+	"github.com/LerkoX/pipelinex"
+	"github.com/LerkoX/pipelinex/logger"
 )
 
 // PipelineListener 监听流水线事件执行
@@ -138,58 +138,6 @@ func (l *PipelineListener) Events() []pipelinex.Event {
 	}
 }
 
-// listWorkflows 列出当前目录下的所有工作流配置文件
-func listWorkflows(dir string) ([]string, error) {
-	var workflows []string
-
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("读取目录失败: %w", err)
-	}
-
-	for _, entry := range entries {
-		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".yaml") && entry.Name() != "README.yaml" {
-			workflows = append(workflows, entry.Name())
-		}
-	}
-
-	return workflows, nil
-}
-
-// selectWorkflow 让用户选择工作流
-func selectWorkflow(workflows []string) (string, error) {
-	if len(workflows) == 0 {
-		return "", fmt.Errorf("没有找到工作流配置文件")
-	}
-
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Println("\n=== 可用的工作流 ===")
-	for i, wf := range workflows {
-		fmt.Printf("%d. %s\n", i+1, wf)
-	}
-	fmt.Println("0. 退出")
-	fmt.Printf("\n请选择要运行的工作流 (0-%d): ", len(workflows))
-
-	input, err := reader.ReadString('\n')
-	if err != nil {
-		return "", fmt.Errorf("读取输入失败: %w", err)
-	}
-
-	input = strings.TrimSpace(input)
-	if input == "0" {
-		return "", nil
-	}
-
-	var choice int
-	_, err = fmt.Sscanf(input, "%d", &choice)
-	if err != nil || choice < 1 || choice > len(workflows) {
-		return "", fmt.Errorf("无效的选择")
-	}
-
-	return workflows[choice-1], nil
-}
-
 // runPipeline 运行指定的流水线
 func runPipeline(configPath string) error {
 	fmt.Println("\n=== 运行工作流 ===")
@@ -267,6 +215,16 @@ func main() {
 	fmt.Println("=== PipelineX 工作流运行器 ===")
 	fmt.Println()
 
+	// 解析命令行参数
+	configFile := flag.String("config", "", "配置文件路径 (必填)")
+	flag.Parse()
+
+	if *configFile == "" {
+		fmt.Println("错误: 请指定配置文件")
+		fmt.Println("用法: go run main.go -config <配置文件路径>")
+		os.Exit(1)
+	}
+
 	// 获取当前目录
 	dir, err := os.Getwd()
 	if err != nil {
@@ -274,41 +232,24 @@ func main() {
 		os.Exit(1)
 	}
 
-	// 列出工作流
-	workflows, err := listWorkflows(dir)
-	if err != nil {
-		fmt.Printf("列出工作流失败: %v\n", err)
+	// 构建完整路径
+	var configPath string
+	if filepath.IsAbs(*configFile) {
+		configPath = *configFile
+	} else {
+		configPath = filepath.Join(dir, *configFile)
+	}
+
+	// 检查文件是否存在
+	if _, err := os.Stat(configPath); err != nil {
+		fmt.Printf("错误: 配置文件不存在: %s\n", configPath)
 		os.Exit(1)
 	}
 
-	// 循环选择工作流
-	for {
-		selected, err := selectWorkflow(workflows)
-		if err != nil {
-			fmt.Printf("选择错误: %v\n", err)
-			continue
-		}
-
-		if selected == "" {
-			fmt.Println("退出工作流运行器")
-			break
-		}
-
-		// 运行工作流
-		err = runPipeline(filepath.Join(dir, selected))
-		if err != nil {
-			fmt.Printf("\n错误: %v\n", err)
-		}
-
-		// 询问是否继续
-		fmt.Println("\n----------------------------------------")
-		reader := bufio.NewReader(os.Stdin)
-		fmt.Print("是否继续运行其他工作流? (y/n): ")
-		input, _ := reader.ReadString('\n')
-		input = strings.TrimSpace(strings.ToLower(input))
-		if input != "y" && input != "yes" {
-			fmt.Println("退出工作流运行器")
-			break
-		}
+	// 运行工作流
+	err = runPipeline(configPath)
+	if err != nil {
+		fmt.Printf("\n错误: %v\n", err)
+		os.Exit(1)
 	}
 }
