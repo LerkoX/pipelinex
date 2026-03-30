@@ -294,15 +294,28 @@ Nodes:
 如果流水线执行失败，可以记录节点状态以便下次恢复：
 
 ```yaml
-Status:
-  Build: SUCCESS        # 已完成，会被跳过
-  Test: PENDING          # 会执行
-
 Nodes:
   Build:
-    # ... 节点配置
+    executor: local
+    runtime:                    # 节点运行时状态用于恢复
+      status: "SUCCESS"         # 已完成，会被跳过
+      startTime: "2026-03-30T10:00:00Z"
+      endTime: "2026-03-30T10:01:00Z"
+      steps:
+        - name: build
+          status: "SUCCESS"
+          output: "Build completed"
+    steps:
+      - name: build
+        run: echo "Building..."
+
   Test:
-    # ... 节点配置
+    executor: local
+    runtime:                    # 节点运行时状态用于恢复
+      status: "PENDING"         # 会执行
+    steps:
+      - name: test
+        run: echo "Testing..."
 ```
 
 ## 事件监控

@@ -294,15 +294,28 @@ Nodes:
 Resume pipeline execution from saved state:
 
 ```yaml
-Status:
-  Build: SUCCESS        # Already completed, will be skipped
-  Test: PENDING          # Will execute
-
 Nodes:
   Build:
-    # ... node configuration
+    executor: local
+    runtime:                    # Node runtime status for recovery
+      status: "SUCCESS"         # Already completed, will be skipped
+      startTime: "2026-03-30T10:00:00Z"
+      endTime: "2026-03-30T10:01:00Z"
+      steps:
+        - name: build
+          status: "SUCCESS"
+          output: "Build completed"
+    steps:
+      - name: build
+        run: echo "Building..."
+
   Test:
-    # ... node configuration
+    executor: local
+    runtime:                    # Node runtime status for recovery
+      status: "PENDING"         # Will execute
+    steps:
+      - name: test
+        run: echo "Testing..."
 ```
 
 ## Event Monitoring
