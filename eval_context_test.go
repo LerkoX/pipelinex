@@ -240,3 +240,92 @@ func TestDGAEvaluationContext_EmptyKey(t *testing.T) {
 		t.Errorf("Expected empty-key-value, got '%v'", val)
 	}
 }
+
+func TestDGAEvaluationContext_WithPipeline(t *testing.T) {
+	ctx := NewEvaluationContext().
+		WithParams(map[string]any{"key": "value"}).
+		WithPipeline(&PipelineImpl{})
+
+	all := ctx.All()
+
+	// 应该保留原有参数
+	if all["key"] != "value" {
+		t.Errorf("Expected key='value', got '%v'", all["key"])
+	}
+
+	// 应该包含 pipelineId
+	if _, ok := all["pipelineId"]; !ok {
+		t.Error("Expected pipelineId to be present")
+	}
+}
+
+func TestConvertBoolToString(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    any
+		expected any
+	}{
+		{"true boolean", true, "true"},
+		{"false boolean", false, "false"},
+		{"string true", "true", "true"},
+		{"string false", "false", "false"},
+		{"number 1", 1, 1},
+		{"number 0", 0, 0},
+		{"string '1'", "1", "1"},
+		{"string '0'", "0", "0"},
+		{"empty string", "", ""},
+		{"non-empty string", "hello", "hello"},
+		{"nil", nil, nil},
+		{"map with bool", map[string]any{"a": true}, map[string]any{"a": "true"}},
+		{"map with nested bool", map[string]any{"a": map[string]any{"b": false}}, map[string]any{"a": map[string]any{"b": "false"}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := convertBoolToString(tt.input)
+			if !deepCompare(result, tt.expected) {
+				t.Errorf("convertBoolToString(%v) = %v, expected %v", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+// deepCompare 深度比较两个值是否相等（用于测试）
+func deepCompare(a, b any) bool {
+	switch av := a.(type) {
+	case map[string]any:
+		bv, ok := b.(map[string]any)
+		if !ok || len(av) != len(bv) {
+			return false
+		}
+		for k, v := range av {
+			if bv[k] == nil || !deepCompare(v, bv[k]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return a == b
+	}
+}
+
+func TestDGAEvaluationContext_WithPipeline_DoesNotModifyOriginal(t *testing.T) {
+	ctx1 := NewEvaluationContext().WithParams(map[string]any{
+		"key1": "value1",
+	})
+
+	pipeline := NewPipeline(nil)
+	ctx2 := ctx1.WithPipeline(pipeline.(*PipelineImpl))
+
+	// ctx1 不应该包含 pipelineId
+	all1 := ctx1.All()
+	if _, ok := all1["pipelineId"]; ok {
+		t.Error("Original context should not have pipelineId")
+	}
+
+	// ctx2 应该包含 pipelineId
+	all2 := ctx2.All()
+	if _, ok := all2["pipelineId"]; !ok {
+		t.Error("New context should have pipelineId")
+	}
+}

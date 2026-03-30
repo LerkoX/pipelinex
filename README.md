@@ -1,10 +1,10 @@
 # PipelineX
 
 <p align="center">
-  <img src="icon.ico" alt="PipelineX Icon">
+  <img src="icon.ico" alt="PipelineX Icon" width="120">
 </p>
 
-A flexible and extensible CI/CD pipeline execution library for Go, supporting multiple execution backends and DAG-based workflow orchestration.
+A flexible and extensible pipeline execution library for Go, supporting multiple execution backends and DAG-based workflow orchestration.
 
 [![Go Version](https://img.shields.io/badge/go-%3E%3D1.23-blue)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -20,6 +20,8 @@ A flexible and extensible CI/CD pipeline execution library for Go, supporting mu
 - **Metadata Management**: Process-safe metadata storage and retrieval
 - **Log Streaming**: Real-time log output with customizable log pushing
 - **Output Extraction**: Extract structured data from command output using codec-block or regex patterns
+- **Runtime Recovery**: Resume pipeline execution from saved state
+- **Data Passing**: Share data between nodes using metadata
 
 ## Installation
 
@@ -109,7 +111,7 @@ Nodes:
           echo '```'
 ```
 
-This extracts `buildId` and `version` from the output and makes them available as `${Metadata.Build.buildId}` and `${Metadata.Build.version}`.
+This extracts `buildId` and `version` from output and makes them available as `${Metadata.Build.buildId}` and `${Metadata.Build.version}`.
 
 ### Regex Extraction
 
@@ -130,7 +132,7 @@ Nodes:
         run: go test -cover
 ```
 
-This extracts test coverage and count from the command output.
+This extracts test coverage and count from command output.
 
 ## Configuration
 
@@ -200,6 +202,7 @@ Executors:
       workdir: /tmp        # Working directory
       env:                 # Environment variables
         KEY: value
+      ptimeout: "30s"      # Command timeout
       pty: true            # Enable PTY for interactive programs
 ```
 
@@ -211,15 +214,15 @@ Executors:
   docker:
     type: docker
     config:
-      registry: docker.io
-      network: host
-      workdir: /app
-      tty: true
-      ttyWidth: 120
-      ttyHeight: 40
-      volumes:
+      registry: docker.io   # Image registry
+      network: host         # Network mode
+      workdir: /app         # Container working directory
+      tty: true             # Enable TTY
+      ttyWidth: 120         # TTY width
+      ttyHeight: 40         # TTY height
+      volumes:              # Volume mounts
         - /host/path:/container/path
-      env:
+      env:                  # Environment variables
         GO_VERSION: "1.21"
 ```
 
@@ -233,9 +236,7 @@ Executors:
     config:
       namespace: default
       serviceAccount: pipeline-sa
-      resources:
-        cpu: "1000m"
-        memory: "2Gi"
+      podReadyTimeout: "60s"  # Pod ready timeout
 ```
 
 ## Conditional Edges
@@ -252,6 +253,71 @@ Graph: |
     Deploy --> [*]
 ```
 
+Complex conditions are supported:
+
+```yaml
+# Multiple conditions
+QualityCheck --> DeployStaging: "{{ QualityCheck.allTestsPassed == true and QualityCheck.codeCoverage >= 80 }}"
+
+# Nested conditions
+Deploy --> Production: "{{ eq .Param.environment 'production' and .ManualApproval.approved == true }}"
+```
+
+## Data Passing
+
+Share data between nodes using metadata:
+
+```yaml
+Nodes:
+  Generate:
+    executor: local
+    steps:
+      - name: generate
+        run: |
+          echo '```pipelinex-json'
+          echo '{"value": 42, "message": "hello world"}'
+          echo '```'
+    extract:
+      type: codec-block
+
+  Process:
+    executor: local
+    steps:
+      - name: process
+        run: |
+          echo "Processing value: {{ .Metadata.Generate.value }}"
+          echo "Message: {{ .Metadata.Generate.message }}"
+```
+
+## Runtime Recovery
+
+Resume pipeline execution from saved state:
+
+```yaml
+Nodes:
+  Build:
+    executor: local
+    runtime:                    # Node runtime status for recovery
+      status: "SUCCESS"         # Already completed, will be skipped
+      startTime: "2026-03-30T10:00:00Z"
+      endTime: "2026-03-30T10:01:00Z"
+      steps:
+        - name: build
+          status: "SUCCESS"
+          output: "Build completed"
+    steps:
+      - name: build
+        run: echo "Building..."
+
+  Test:
+    executor: local
+    runtime:                    # Node runtime status for recovery
+      status: "PENDING"         # Will execute
+    steps:
+      - name: test
+        run: echo "Testing..."
+```
+
 ## Event Monitoring
 
 Monitor pipeline execution through event listeners:
@@ -260,12 +326,18 @@ Monitor pipeline execution through event listeners:
 listener := pipelinex.NewListener()
 listener.Handle(func(p pipelinex.Pipeline, event pipelinex.Event) {
     switch event {
+    case pipelinex.PipelineInit:
+        fmt.Println("Pipeline initialized")
     case pipelinex.PipelineStart:
         fmt.Println("Pipeline started")
     case pipelinex.PipelineFinish:
         fmt.Println("Pipeline finished")
+    case pipelinex.PipelineExecutorPrepare:
+        fmt.Println("Executor preparing")
     case pipelinex.PipelineNodeStart:
         fmt.Println("Node started")
+    case pipelinex.PipelineNodeFinish:
+        fmt.Println("Node completed")
     }
 })
 
@@ -345,7 +417,14 @@ graph TB
     RTI --> LOG
 ```
 
-[中文文档](./README_ZH.md)
+## Examples
+
+See [examples/workflows/README.md](./examples/workflows/README.md) for detailed workflow examples:
+
+- **File Processing**: Automated log archiving and cleanup
+- **Data ETL**: Parallel data collection and transformation
+- **CI/CD Deployment**: Complete deployment pipeline with quality gates
+- **Weather Notification**: Weather API integration with messaging
 
 ## API Reference
 
@@ -353,18 +432,18 @@ graph TB
 
 ```go
 type Runtime interface {
-    Get(id string) (Pipeline, error)
-    Cancel(ctx context.Context, id string) error
-    RunAsync(ctx context.Context, id string, config string, listener Listener) (Pipeline, error)
-    RunSync(ctx context.Context, id string, config string, listener Listener) (Pipeline, error)
-    Rm(id string)
-    Done() chan struct{}
-    Notify(data interface{}) error
-    Ctx() context.Context
-    StopBackground()
-    StartBackground()
-    SetPusher(pusher Pusher)
-    SetTemplateEngine(engine TemplateEngine)
+    Get(id string) (Pipeline, error)                          // Get pipeline by ID
+    Cancel(ctx context.Context, id string) error              // Cancel running pipeline
+    RunAsync(ctx context.Context, id string, config string, listener Listener) (Pipeline, error)  // Async execution
+    RunSync(ctx context.Context, id string, config string, listener Listener) (Pipeline, error)   // Sync execution
+    Rm(id string)                                             // Remove pipeline record
+    Done() chan struct{}                                      // Runtime completion signal
+    Notify(data interface{}) error                            // Notify runtime
+    Ctx() context.Context                                     // Get runtime context
+    StopBackground()                                          // Stop background processing
+    StartBackground()                                         // Start background processing
+    SetPusher(pusher Pusher)                                  // Set log pusher
+    SetTemplateEngine(engine TemplateEngine)                  // Set template engine
 }
 ```
 
@@ -372,14 +451,17 @@ type Runtime interface {
 
 ```go
 type Pipeline interface {
-    Run(ctx context.Context) error
-    Cancel()
-    Done() chan struct{}
-    SetGraph(graph Graph)
-    GetGraph() Graph
-    SetExecutorProvider(provider ExecutorProvider)
-    Listening(listener Listener)
-    SetMetadata(metadata MetadataStore)
+    Run(ctx context.Context) error                            // Run pipeline
+    Cancel()                                                  // Cancel pipeline
+    Done() chan struct{}                                      // Pipeline completion signal
+    SetGraph(graph Graph)                                     // Set DAG graph
+    GetGraph() Graph                                          // Get DAG graph
+    SetExecutorProvider(provider ExecutorProvider)            // Set executor provider
+    Listening(listener Listener)                              // Set event listener
+    SetMetadata(metadata MetadataStore)                       // Set metadata store
+    Id() string                                                // Get pipeline ID
+    Status() string                                             // Get pipeline status
+    Metadata() map[string]any                                 // Get pipeline metadata
 }
 ```
 
@@ -396,3 +478,5 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 ## License
 
 MIT License - see [LICENSE](LICENSE) for details.
+
+[中文文档](./README_ZH.md)
