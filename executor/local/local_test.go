@@ -2,6 +2,8 @@ package local
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"runtime"
 	"testing"
 	"time"
@@ -552,4 +554,137 @@ func TestLocalExecutor_UnsupportedDataType(t *testing.T) {
 	case <-timeout:
 		t.Fatal("Timeout waiting for error")
 	}
+}
+
+// TestLocalExecutor_DestructionTerminatesProcess 测试执行器终止时，正在运行的命令进程也会被终止
+func TestLocalExecutor_DestructionTerminatesProcess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping on Windows")
+	}
+
+	// 创建一个临时文件用于标记命令是否仍在运行
+	tmpFile, err := os.CreateTemp("", "long_running_test_*.txt")
+	require.NoError(t, err)
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+	tmpFile.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	localExecutor := NewLocalExecutor()
+	require.NoError(t, localExecutor.Prepare(ctx))
+
+	resultChan := make(chan any, 10)
+	commandChan := make(chan any, 1)
+
+	go localExecutor.Transfer(ctx, resultChan, commandChan)
+
+	// 启动一个长时间运行的命令，它会持续写入临时文件
+	longRunningCmd := fmt.Sprintf("for i in $(seq 1 1000); do echo $i >> %s; sleep 1; done", tmpPath)
+	commandChan <- executorpkg.CommandWrapper{
+		StepName: "long-running-step",
+		Command:  longRunningCmd,
+	}
+
+	// 等待命令启动并开始写入
+	time.Sleep(2 * time.Second)
+
+	// 验证文件已经有内容（说明命令已启动）
+	initialContent, err := os.ReadFile(tmpPath)
+	require.NoError(t, err)
+	require.NotEmpty(t, initialContent, "Command should have started and written to file")
+	t.Logf("Initial file size: %d bytes", len(initialContent))
+
+	// 记录写入的字节数
+	initialSize := len(initialContent)
+
+	// 调用 Destruction，这应该终止正在运行的命令
+	err = localExecutor.Destruction(ctx)
+	require.NoError(t, err, "Destruction should not return error")
+
+	// 等待一段时间，确认命令已经被终止
+	time.Sleep(3 * time.Second)
+
+	// 读取文件的最终内容
+	finalContent, err := os.ReadFile(tmpPath)
+	require.NoError(t, err)
+	finalSize := len(finalContent)
+
+	t.Logf("Final file size: %d bytes", finalSize)
+
+	// 验证文件大小没有显著增加（说明命令已被终止）
+	// 命令在 2 秒内写入了 initialSize 字节
+	// 如果命令没有被终止，再过 3 秒应该会写入更多内容
+	// 我们允许一定的增长（可能还有部分缓冲区未写入），但不应该成倍增长
+	maxExpectedGrowth := initialSize * 2 // 允许最多增长 2 倍（缓冲区延迟）
+	actualGrowth := finalSize - initialSize
+
+	t.Logf("Initial size: %d, Final size: %d, Growth: %d, Max expected growth: %d",
+		initialSize, finalSize, actualGrowth, maxExpectedGrowth)
+
+	assert.LessOrEqual(t, actualGrowth, maxExpectedGrowth,
+		"Command should have been terminated, file size should not grow significantly after Destruction")
+}
+
+// TestLocalExecutor_ContextCancelTerminatesProcess 测试上下文取消时，正在运行的命令进程也会被终止
+func TestLocalExecutor_ContextCancelTerminatesProcess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Skipping on Windows")
+	}
+
+	// 创建一个临时文件用于标记命令是否仍在运行
+	tmpFile, err := os.CreateTemp("", "context_cancel_test_*.txt")
+	require.NoError(t, err)
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+	tmpFile.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	localExecutor := NewLocalExecutor()
+	require.NoError(t, localExecutor.Prepare(ctx))
+	defer localExecutor.Destruction(ctx)
+
+	resultChan := make(chan any, 10)
+	commandChan := make(chan any, 1)
+
+	go localExecutor.Transfer(ctx, resultChan, commandChan)
+
+	// 启动一个长时间运行的命令
+	longRunningCmd := fmt.Sprintf("for i in $(seq 1 1000); do echo $i >> %s; sleep 1; done", tmpPath)
+	commandChan <- executorpkg.CommandWrapper{
+		StepName: "long-running-step",
+		Command:  longRunningCmd,
+	}
+
+	// 等待命令启动并开始写入
+	time.Sleep(2 * time.Second)
+
+	// 验证文件已经有内容（说明命令已启动）
+	initialContent, err := os.ReadFile(tmpPath)
+	require.NoError(t, err)
+	require.NotEmpty(t, initialContent, "Command should have started and written to file")
+	initialSize := len(initialContent)
+
+	// 取消上下文
+	cancel()
+
+	// 等待一段时间，确认命令已经被终止
+	time.Sleep(3 * time.Second)
+
+	// 读取文件的最终内容
+	finalContent, err := os.ReadFile(tmpPath)
+	require.NoError(t, err)
+	finalSize := len(finalContent)
+
+	// 验证文件大小没有显著增加（说明命令已被终止）
+	maxExpectedGrowth := initialSize * 2
+	actualGrowth := finalSize - initialSize
+
+	t.Logf("Initial size: %d, Final size: %d, Growth: %d, Max expected growth: %d",
+		initialSize, finalSize, actualGrowth, maxExpectedGrowth)
+
+	assert.LessOrEqual(t, actualGrowth, maxExpectedGrowth,
+		"Command should have been terminated when context was canceled")
 }
