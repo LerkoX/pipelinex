@@ -4,7 +4,7 @@
   <img src="icon.ico" alt="PipelineX Icon" width="120">
 </p>
 
-一个灵活且可扩展的 Go 语言 CI/CD 流水线执行库，支持多种执行后端和基于 DAG 的工作流编排。
+一个灵活且可扩展的 Go 语言流水线执行库，支持多种执行后端和基于 DAG 的工作流编排。
 
 [![Go Version](https://img.shields.io/badge/go-%3E%3D1.23-blue)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
