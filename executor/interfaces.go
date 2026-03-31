@@ -18,8 +18,8 @@ type Executor interface {
 	// Destruction 销毁环境
 	Destruction(ctx context.Context) error
 	// Transfer 从 commandChan 接收命令执行，并将结果发送到 resultChan
-	// 只支持 string 类型的命令
-	Transfer(ctx context.Context, resultChan chan<- any, commandChan <-chan any)
+	// inputChan 用于接收交互式输入数据，可为 nil（不需要输入时）
+	Transfer(ctx context.Context, resultChan chan<- any, commandChan <-chan any, inputChan <-chan []byte)
 }
 
 // ExecutorInfoProvider 用于获取 executor 运行时信息

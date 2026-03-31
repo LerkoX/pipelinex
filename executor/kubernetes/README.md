@@ -127,7 +127,7 @@ func main() {
     commandChan := make(chan any)  // 用于发送命令
 
     // 启动 Transfer 处理 goroutine
-    go executor.Transfer(ctx, resultChan, commandChan)
+    go executor.Transfer(ctx, resultChan, commandChan, nil)
 
     // 发送步骤执行
     steps := []pipelinex.Step{

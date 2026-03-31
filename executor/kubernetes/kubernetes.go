@@ -160,9 +160,10 @@ func (k *KubernetesExecutor) Destruction(ctx context.Context) error {
 
 // Transfer 在Kubernetes Pod中执行命令
 // 只支持 string 类型的命令
+// inputChan 用于接收交互式输入数据，可为 nil（不需要输入时）
 //
 // 当 ctx 被取消时，会立即停止执行新命令，并终止当前正在执行的命令
-func (k *KubernetesExecutor) Transfer(ctx context.Context, resultChan chan<- any, commandChan <-chan any) {
+func (k *KubernetesExecutor) Transfer(ctx context.Context, resultChan chan<- any, commandChan <-chan any, inputChan <-chan []byte) {
 	// 创建一个可取消的内部上下文，用于控制当前命令的执行
 	execCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -188,7 +189,7 @@ func (k *KubernetesExecutor) Transfer(ctx context.Context, resultChan chan<- any
 			continue
 		}
 		// 执行命令（携带步骤名称）
-		k.executeCommandStreaming(execCtx, cmdWrapper.Command, cmdWrapper.StepName, resultChan)
+		k.executeCommandStreaming(execCtx, cmdWrapper.Command, cmdWrapper.StepName, resultChan, inputChan)
 	}
 }
 
@@ -322,12 +323,12 @@ func (k *KubernetesExecutor) waitForPodRunning(ctx context.Context) error {
 }
 
 // executeCommandStreaming 执行命令并实时流式输出
-func (k *KubernetesExecutor) executeCommandStreaming(ctx context.Context, command string, stepName string, resultChan chan<- any) {
+func (k *KubernetesExecutor) executeCommandStreaming(ctx context.Context, command string, stepName string, resultChan chan<- any, inputChan <-chan []byte) {
 	startTime := time.Now()
 
 	err := k.executeCommandInPodStreaming(ctx, command, func(data []byte) {
 		resultChan <- data
-	})
+	}, inputChan)
 
 	// 发送最终结果
 	resultChan <- &executor.StepResult{
@@ -342,7 +343,7 @@ func (k *KubernetesExecutor) executeCommandStreaming(ctx context.Context, comman
 
 // executeCommandInPodStreaming 在Pod中执行命令并实时流式输出
 // 当 ctx 被取消时，会向进程发送 Ctrl+C 信号 (\x03)
-func (k *KubernetesExecutor) executeCommandInPodStreaming(ctx context.Context, command string, outputCallback func([]byte)) error {
+func (k *KubernetesExecutor) executeCommandInPodStreaming(ctx context.Context, command string, outputCallback func([]byte), inputChan <-chan []byte) error {
 	k.mu.RLock()
 	podName := k.podName
 	namespace := k.namespace
@@ -375,7 +376,7 @@ func (k *KubernetesExecutor) executeCommandInPodStreaming(ctx context.Context, c
 	// 设置TTY和流选项
 	req = req.Param("stdout", "true")
 	req = req.Param("stderr", "true")
-	// 必须启用stdin才能发送Ctrl+C
+	// 必须启用stdin才能发送Ctrl+C或交互式输入
 	req = req.Param("stdin", "true")
 	req = req.Param("tty", fmt.Sprintf("%v", useTTY))
 
@@ -391,7 +392,7 @@ func (k *KubernetesExecutor) executeCommandInPodStreaming(ctx context.Context, c
 		useTTY:   useTTY,
 	}
 
-	// 创建stdin pipe，用于发送Ctrl+C
+	// 创建stdin pipe，用于发送Ctrl+C和交互式输入
 	stdinReader, stdinWriter := io.Pipe()
 
 	// 创建一个内部可取消的上下文
@@ -419,6 +420,29 @@ func (k *KubernetesExecutor) executeCommandInPodStreaming(ctx context.Context, c
 		}
 	}()
 
+	// 如果有输入通道，启动输入写入 goroutine
+	if inputChan != nil {
+		go func() {
+			defer stdinWriter.Close()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-execCtx.Done():
+					return
+				case data, ok := <-inputChan:
+					if !ok {
+						return
+					}
+					if len(data) > 0 {
+						stdinWriter.Write(data)
+					}
+				}
+			}
+		}()
+	}
+
 	// 执行命令
 	streamOptions := remotecommand.StreamOptions{
 		Stdin:  stdinReader,
@@ -430,7 +454,7 @@ func (k *KubernetesExecutor) executeCommandInPodStreaming(ctx context.Context, c
 	// 如果启用TTY，设置终端大小
 	if useTTY && ttyWidth > 0 && ttyHeight > 0 {
 		streamOptions.TerminalSizeQueue = &fixedTerminalSize{
-			width:  uint16(ttyWidth),
+			width: uint16(ttyWidth),
 			height: uint16(ttyHeight),
 		}
 	}

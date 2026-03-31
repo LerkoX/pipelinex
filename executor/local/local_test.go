@@ -131,7 +131,7 @@ func TestLocalExecutor_Transfer_SingleCommand(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 发送测试命令
 	var testCmd string
@@ -190,7 +190,7 @@ func TestLocalExecutor_Transfer_CommandFailure(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 发送一个会失败的命令
 	commandChan <- executorpkg.CommandWrapper{
@@ -236,7 +236,7 @@ func TestLocalExecutor_EnvConfiguration(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 发送打印环境变量的命令
 	var testCmd string
@@ -487,7 +487,7 @@ func TestLocalExecutor_CancelContext(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go localExecutor.Transfer(ctx, resultChan, commandChan)
+	go localExecutor.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 发送一个长时间运行的命令
 	commandChan <- executorpkg.CommandWrapper{
@@ -538,7 +538,7 @@ func TestLocalExecutor_UnsupportedDataType(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go localExecutor.Transfer(ctx, resultChan, commandChan)
+	go localExecutor.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 发送不支持的类型
 	commandChan <- 12345
@@ -578,7 +578,7 @@ func TestLocalExecutor_DestructionTerminatesProcess(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go localExecutor.Transfer(ctx, resultChan, commandChan)
+	go localExecutor.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 启动一个长时间运行的命令，它会持续写入临时文件
 	longRunningCmd := fmt.Sprintf("for i in $(seq 1 1000); do echo $i >> %s; sleep 1; done", tmpPath)
@@ -649,7 +649,7 @@ func TestLocalExecutor_ContextCancelTerminatesProcess(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go localExecutor.Transfer(ctx, resultChan, commandChan)
+	go localExecutor.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 启动一个长时间运行的命令
 	longRunningCmd := fmt.Sprintf("for i in $(seq 1 1000); do echo $i >> %s; sleep 1; done", tmpPath)

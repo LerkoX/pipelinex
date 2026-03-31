@@ -76,9 +76,10 @@ func (l *LocalExecutor) Destruction(ctx context.Context) error {
 
 // Transfer 接收命令并执行
 // 只支持 string 类型的命令
+// inputChan 用于接收交互式输入数据，可为 nil（不需要输入时）
 //
 // 当 ctx 被取消时，会立即停止执行新命令，并终止当前正在执行的进程
-func (l *LocalExecutor) Transfer(ctx context.Context, resultChan chan<- any, commandChan <-chan any) {
+func (l *LocalExecutor) Transfer(ctx context.Context, resultChan chan<- any, commandChan <-chan any, inputChan <-chan []byte) {
 	// 创建一个可取消的内部上下文，用于控制当前命令的执行
 	execCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -107,7 +108,7 @@ func (l *LocalExecutor) Transfer(ctx context.Context, resultChan chan<- any, com
 			continue
 		}
 		// 执行命令（携带步骤名称）
-		l.executeCommandStreaming(execCtx, cmdWrapper.Command, cmdWrapper.StepName, resultChan)
+		l.executeCommandStreaming(execCtx, cmdWrapper.Command, cmdWrapper.StepName, resultChan, inputChan)
 	}
 }
 
@@ -126,7 +127,7 @@ func (l *LocalExecutor) killCurrentProcess() {
 }
 
 // executeCommandStreaming 执行命令并实时流式输出
-func (l *LocalExecutor) executeCommandStreaming(ctx context.Context, command string, stepName string, resultChan chan<- any) {
+func (l *LocalExecutor) executeCommandStreaming(ctx context.Context, command string, stepName string, resultChan chan<- any, inputChan <-chan []byte) {
 	startTime := time.Now()
 
 	// 创建带超时的上下文
@@ -139,7 +140,7 @@ func (l *LocalExecutor) executeCommandStreaming(ctx context.Context, command str
 
 	err := l.executeCommandWithStreaming(execCtx, command, func(data []byte) {
 		resultChan <- data
-	})
+	}, inputChan)
 
 	// 发送最终结果
 	resultChan <- &executor.StepResult{
@@ -153,7 +154,7 @@ func (l *LocalExecutor) executeCommandStreaming(ctx context.Context, command str
 }
 
 // executeCommandWithStreaming 执行命令并实时输出
-func (l *LocalExecutor) executeCommandWithStreaming(ctx context.Context, command string, outputCallback func([]byte)) error {
+func (l *LocalExecutor) executeCommandWithStreaming(ctx context.Context, command string, outputCallback func([]byte), inputChan <-chan []byte) error {
 	l.mu.Lock()
 
 	// 创建命令
@@ -181,12 +182,21 @@ func (l *LocalExecutor) executeCommandWithStreaming(ctx context.Context, command
 		return fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
+	// 获取stdin管道（如果需要输入）
+	var stdin io.WriteCloser
+	if inputChan != nil {
+		stdin, err = cmd.StdinPipe()
+		if err != nil {
+			return fmt.Errorf("failed to create stdin pipe: %w", err)
+		}
+	}
+
 	// 启动命令
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 
-	// 使用 WaitGroup 等待两个输出流读取完成
+	// 使用 WaitGroup 等待所有 goroutine 完成
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -201,6 +211,29 @@ func (l *LocalExecutor) executeCommandWithStreaming(ctx context.Context, command
 		defer wg.Done()
 		l.streamOutput(stderr, outputCallback)
 	}()
+
+	// 如果有输入通道，启动输入写入 goroutine
+	if inputChan != nil && stdin != nil {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer stdin.Close()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case data, ok := <-inputChan:
+					if !ok {
+						return
+					}
+					if len(data) > 0 {
+						stdin.Write(data)
+					}
+				}
+			}
+		}()
+	}
 
 	// 等待输出读取完成
 	wg.Wait()

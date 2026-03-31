@@ -510,7 +510,14 @@ func (p *PipelineImpl) executeNode(ctx context.Context, node Node, exec Executor
 	node.SetRuntimeStatus(runtimeStatus)
 
 	// 2. 设置通道和启动 executor
-	commandChan, resultChan := p.setupExecutorChannels(ctx, exec, steps)
+	commandChan, resultChan, inputChan := p.setupExecutorChannels(ctx, exec, steps)
+
+	// 将 inputChan 保存到 RuntimeStatus，供外部交互使用
+	runtimeStatus = node.GetRuntimeStatus()
+	if runtimeStatus != nil {
+		runtimeStatus.InputChan = inputChan
+		node.SetRuntimeStatus(runtimeStatus)
+	}
 
 	// 3. 发送所有步骤命令
 	go p.sendCommands(ctx, node, commandChan, steps)
@@ -536,6 +543,9 @@ func (p *PipelineImpl) executeNode(ctx context.Context, node Node, exec Executor
 		p.updateNodeFinalStatus(runtimeStatus, lastErr)
 		node.SetRuntimeStatus(runtimeStatus)
 	}
+
+	// 7. 关闭 inputChan
+	close(inputChan)
 
 	return lastErr
 }
@@ -569,14 +579,15 @@ func (p *PipelineImpl) initializeNodeRuntimeStatus(node Node, exec Executor) *No
 }
 
 // setupExecutorChannels 设置通道并启动 executor
-func (p *PipelineImpl) setupExecutorChannels(ctx context.Context, exec Executor, steps []Step) (chan any, chan any) {
+func (p *PipelineImpl) setupExecutorChannels(ctx context.Context, exec Executor, steps []Step) (chan any, chan any, chan []byte) {
 	commandChan := make(chan any, len(steps))
 	resultChan := make(chan any, len(steps)*10)
+	inputChan := make(chan []byte, 100) // 输入通道，缓冲100条消息
 
 	// 启动 executor 的 Transfer goroutine
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, inputChan)
 
-	return commandChan, resultChan
+	return commandChan, resultChan, inputChan
 }
 
 // sendCommands 发送所有步骤命令

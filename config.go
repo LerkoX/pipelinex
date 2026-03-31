@@ -21,13 +21,14 @@ type ExecutorRuntimeInfo struct {
 
 // NodeRuntimeStatus 节点运行时状态
 type NodeRuntimeStatus struct {
-	Id        string                 `yaml:"id"`                      // 节点UUID
-	Status    string                 `yaml:"status"`                  // 节点状态
-	StartTime string                 `yaml:"startTime,omitempty"`     // 开始时间
-	EndTime   string                 `yaml:"endTime,omitempty"`       // 结束时间
-	Steps     []StepRuntimeStatus    `yaml:"steps"`                   // 步骤状态列表
-	Executor  *ExecutorRuntimeInfo   `yaml:"executor,omitempty"`      // Executor 信息
-	Custom    map[string]interface{} `yaml:"custom,omitempty"`        // 自定义扩展字段
+	Id         string                 `yaml:"id"`                      // 节点UUID
+	Status     string                 `yaml:"status"`                  // 节点状态
+	StartTime  string                 `yaml:"startTime,omitempty"`     // 开始时间
+	EndTime    string                 `yaml:"endTime,omitempty"`       // 结束时间
+	Steps      []StepRuntimeStatus    `yaml:"steps"`                   // 步骤状态列表
+	Executor   *ExecutorRuntimeInfo   `yaml:"executor,omitempty"`      // Executor 信息
+	Custom     map[string]interface{} `yaml:"custom,omitempty"`        // 自定义扩展字段
+	InputChan  chan []byte            `yaml:"-"`                     // 交互式输入通道（不序列化到YAML）
 }
 
 // PipelineConfig 流水线配置结构
