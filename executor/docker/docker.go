@@ -609,6 +609,7 @@ func (d *DockerExecutor) GetRuntimeInfo() map[string]any {
 		"image":       d.image,
 		"network":     d.network,
 		"workdir":     d.workdir,
+		"registry":    d.registry,
 	}
 }
 

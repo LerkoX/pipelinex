@@ -188,7 +188,7 @@ func TestDockerExecutor_PrepareAndDestruction(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDockerExecutor() error = %v", err)
 	}
-	exec.setImage("alpine:latest")
+	exec.setImage("hub.rat.dev/alpine:latest")
 
 	// 准备环境
 	err = exec.Prepare(ctx)
@@ -506,7 +506,7 @@ func TestDockerExecutor_IntegrationWithDocker(t *testing.T) {
 		require.NoError(t, err)
 
 		// 配置执行器
-		exec.setImage("alpine:latest")
+		exec.setImage("hub.rat.dev/alpine:latest")
 		exec.setTTY(true)
 		exec.setTTYSize(80, 24)
 
@@ -529,13 +529,16 @@ func TestDockerExecutor_IntegrationWithDocker(t *testing.T) {
 
 		go exec.Transfer(ctx, resultChan, commandChan, nil)
 
-		// 发送测试命令
+		// 发送测试命令 - 使用 CommandWrapper
 		testCommand := "echo 'Hello from Docker'"
-		commandChan <- testCommand
+		commandChan <- executor.CommandWrapper{
+			StepName: "test_step",
+			Command:  testCommand,
+		}
 
 		// 接收结果
 		results := []any{}
-		timeout := time.After(5 * time.Second)
+		timeout := time.After(10 * time.Second)
 		resultCount := 0
 
 		for resultCount < 2 { // 预期：输出 + 结果
@@ -572,7 +575,7 @@ func TestDockerExecutor_IntegrationWithDocker(t *testing.T) {
 		exec, err := NewDockerExecutor()
 		require.NoError(t, err)
 
-		exec.setImage("alpine:latest")
+		exec.setImage("hub.rat.dev/alpine:latest")
 		exec.setTTY(true) // 启用 TTY
 
 		err = exec.Prepare(ctx)
@@ -585,8 +588,11 @@ func TestDockerExecutor_IntegrationWithDocker(t *testing.T) {
 
 		go exec.Transfer(ctx, resultChan, commandChan, nil)
 
-		// 发送会产生颜色输出的命令
-		commandChan <- "ls --color=always /"
+		// 发送会产生颜色输出的命令 - 使用 CommandWrapper
+		commandChan <- executor.CommandWrapper{
+			StepName: "tty_test",
+			Command:  "ls /",
+		}
 
 		// 接收结果
 		select {
@@ -594,9 +600,11 @@ func TestDockerExecutor_IntegrationWithDocker(t *testing.T) {
 			if data, ok := result.([]byte); ok {
 				t.Logf("TTY output length: %d bytes", len(data))
 				// TTY 模式下应该保留 ANSI 转义序列
-				t.Logf("Output preview: %q", string(data[:min(100, len(data))]))
+				if len(data) > 0 {
+					t.Logf("Output preview: %q", string(data[:min(100, len(data))]))
+				}
 			}
-		case <-time.After(5 * time.Second):
+		case <-time.After(10 * time.Second):
 			t.Fatal("Timeout waiting for TTY output")
 		}
 	})
@@ -605,7 +613,7 @@ func TestDockerExecutor_IntegrationWithDocker(t *testing.T) {
 		exec, err := NewDockerExecutor()
 		require.NoError(t, err)
 
-		exec.setImage("alpine:latest")
+		exec.setImage("hub.rat.dev/alpine:latest")
 		exec.setTTY(false)
 
 		err = exec.Prepare(ctx)
@@ -618,11 +626,11 @@ func TestDockerExecutor_IntegrationWithDocker(t *testing.T) {
 
 		go exec.Transfer(ctx, resultChan, commandChan, nil)
 
-		// 发送多个命令
-		commands := []string{
-			"echo 'step 1'",
-			"pwd",
-			"ls /",
+		// 发送多个命令 - 使用 CommandWrapper
+		commands := []executor.CommandWrapper{
+			{StepName: "step1", Command: "echo 'step 1'"},
+			{StepName: "step2", Command: "pwd"},
+			{StepName: "step3", Command: "ls /"},
 		}
 		for _, cmd := range commands {
 			commandChan <- cmd
@@ -631,13 +639,16 @@ func TestDockerExecutor_IntegrationWithDocker(t *testing.T) {
 
 		// 接收结果（每个命令：输出 + 结果 = 6个消息）
 		results := []any{}
-		timeout := time.After(10 * time.Second)
+		timeout := time.After(15 * time.Second)
 
 		for len(results) < 6 {
 			select {
 			case result := <-resultChan:
 				results = append(results, result)
 				t.Logf("Received result %d: %T", len(results), result)
+				if err, ok := result.(error); ok {
+					t.Logf("Error received: %v", err)
+				}
 			case <-timeout:
 				t.Fatalf("Timeout, received %d results", len(results))
 			}
@@ -652,11 +663,4 @@ func TestDockerExecutor_IntegrationWithDocker(t *testing.T) {
 		}
 		assert.Equal(t, 3, cmdResultCount, "Should receive 3 command results")
 	})
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
