@@ -34,4 +34,7 @@ type Runtime interface {
 	SetTemplateEngine(engine TemplateEngine)
 	// 获取模板引擎
 	GetTemplateEngine() TemplateEngine
+	// ExportConfig 导出流水线的运行时配置
+	// 返回包含当前运行时状态的 YAML 格式配置字符串
+	ExportConfig(id string) (string, error)
 }

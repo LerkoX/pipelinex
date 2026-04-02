@@ -63,7 +63,7 @@ func TestLocalExecutor_MultipleCommandsSequential(t *testing.T) {
 		resultChan := make(chan any, 10)
 		commandChan := make(chan any, 1)
 
-		go exec.Transfer(ctx, resultChan, commandChan)
+		go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 		commandChan <- executor.CommandWrapper{
 			StepName: cmd.stepName,
@@ -94,7 +94,7 @@ func TestLocalExecutor_ConcurrentCommands(t *testing.T) {
 	resultChan := make(chan any, 30)
 	commandChan := make(chan any, 5)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	for i := 1; i <= 5; i++ {
 		commandChan <- executor.CommandWrapper{
@@ -149,7 +149,7 @@ func TestLocalExecutor_LargeOutput(t *testing.T) {
 	resultChan := make(chan any, 100)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	commandChan <- executor.CommandWrapper{
 		StepName: "large-output",
@@ -180,7 +180,7 @@ func TestLocalExecutor_CommandWithPipe(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	commandChan <- executor.CommandWrapper{
 		StepName: "pipe-command",
@@ -220,7 +220,7 @@ func TestLocalExecutor_SpecialCharacters(t *testing.T) {
 			resultChan := make(chan any, 10)
 			commandChan := make(chan any, 1)
 
-			go exec.Transfer(ctx, resultChan, commandChan)
+			go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 			commandChan <- executor.CommandWrapper{
 				StepName: tt.name,
@@ -292,7 +292,7 @@ func TestLocalExecutor_ShellConfiguration(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	commandChan <- executor.CommandWrapper{
 		StepName: "bash-test",
@@ -321,7 +321,7 @@ func TestLocalExecutor_Timeout(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	commandChan <- executor.CommandWrapper{
 		StepName: "timeout-test",
@@ -402,7 +402,7 @@ func TestLocalExecutor_WorkdirInCommand(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	commandChan <- executor.CommandWrapper{
 		StepName: "pwd-check",
@@ -434,7 +434,7 @@ func TestLocalExecutor_EnvOverride(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	commandChan <- executor.CommandWrapper{
 		StepName: "env-check",
@@ -465,7 +465,7 @@ func TestLocalExecutor_EmptyCommand(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	commandChan <- executor.CommandWrapper{
 		StepName: "empty-command",
@@ -494,7 +494,7 @@ func TestLocalExecutor_CommandNotFound(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	commandChan <- executor.CommandWrapper{
 		StepName: "not-found",

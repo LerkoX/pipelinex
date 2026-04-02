@@ -47,7 +47,7 @@ func TestDockerExecutor_WithDefaultRegistry(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 3)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 发送测试命令
 	commandChan <- executor.CommandWrapper{
@@ -114,7 +114,7 @@ func TestDockerExecutor_MultiCommands(t *testing.T) {
 	resultChan := make(chan any, 20)
 	commandChan := make(chan any, 4)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 发送多个命令
 	commands := []executor.CommandWrapper{
@@ -181,7 +181,7 @@ func TestDockerExecutor_CustomRegistry(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 	commandChan <- executor.CommandWrapper{
 		StepName: "test",
 		Command:  "echo 'Custom registry test'",

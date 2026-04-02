@@ -19,15 +19,16 @@ var _ Runtime = (*RuntimeImpl)(nil)
 
 // RuntimeImpl Runtime接口的实现
 type RuntimeImpl struct {
-	pipelines      map[string]Pipeline // 存储所有流水线
-	pipelineIds    map[string]bool     // 跟踪所有使用过的流水线ID
-	mu             sync.RWMutex        // 读写锁
-	ctx            context.Context     // 上下文
-	cancel         context.CancelFunc  // 取消函数
-	doneChan       chan struct{}       // 完成通道
-	background     chan struct{}       // 后台处理完成通道
-	pusher         logger.Pusher        // 日志推送器
-	templateEngine TemplateEngine      // 模板引擎
+	pipelines       map[string]Pipeline      // 存储所有流水线
+	pipelineIds     map[string]bool          // 跟踪所有使用过的流水线ID
+	pipelineConfigs map[string]*PipelineConfig // 存储原始配置用于导出
+	mu              sync.RWMutex             // 读写锁
+	ctx             context.Context          // 上下文
+	cancel          context.CancelFunc       // 取消函数
+	doneChan        chan struct{}            // 完成通道
+	background      chan struct{}            // 后台处理完成通道
+	pusher          logger.Pusher            // 日志推送器
+	templateEngine  TemplateEngine           // 模板引擎
 }
 
 // renderParam 渲染Param中的模板表达式，支持自引用
@@ -211,6 +212,7 @@ func NewRuntime(ctx context.Context) Runtime {
 	return &RuntimeImpl{
 		pipelines:       make(map[string]Pipeline),
 		pipelineIds:     make(map[string]bool),
+		pipelineConfigs: make(map[string]*PipelineConfig),
 		ctx:             ctx,
 		cancel:          cancel,
 		doneChan:        make(chan struct{}),
@@ -309,6 +311,7 @@ func (r *RuntimeImpl) RunAsync(ctx context.Context, id string, config string, li
 	// 存储流水线并标记ID为已使用
 	r.pipelines[id] = pipeline
 	r.pipelineIds[id] = true
+	r.pipelineConfigs[id] = pipelineConfig
 
 	// 异步执行流水线
 	go func() {
@@ -384,6 +387,7 @@ func (r *RuntimeImpl) RunSync(ctx context.Context, id string, config string, lis
 	// 存储流水线
 	r.mu.Lock()
 	r.pipelines[id] = pipeline
+	r.pipelineConfigs[id] = pipelineConfig
 	r.mu.Unlock()
 
 	err = pipeline.Run(ctx)
@@ -405,6 +409,7 @@ func (r *RuntimeImpl) Rm(id string) {
 	defer r.mu.Unlock()
 
 	delete(r.pipelines, id)
+	delete(r.pipelineConfigs, id)
 }
 
 // Done runtime已经执行完成
@@ -698,4 +703,35 @@ func (r *RuntimeImpl) GetTemplateEngine() TemplateEngine {
 	return r.getTemplateEngine()
 }
 
+// ExportConfig 导出流水线的运行时配置
+// 返回包含当前运行时状态的 YAML 格式配置字符串
+func (r *RuntimeImpl) ExportConfig(id string) (string, error) {
+	r.mu.RLock()
+	pipeline, exists := r.pipelines[id]
+	config, configExists := r.pipelineConfigs[id]
+	r.mu.RUnlock()
+
+	if !exists {
+		return "", fmt.Errorf("pipeline with id %s not found", id)
+	}
+
+	if !configExists {
+		return "", fmt.Errorf("config for pipeline %s not found", id)
+	}
+
+	// 使用 Snapshotter 生成带状态的配置
+	snapshotter := NewPipelineSnapshotter()
+	snapshotConfig, err := snapshotter.TakeSnapshot(pipeline, config)
+	if err != nil {
+		return "", fmt.Errorf("failed to take snapshot: %w", err)
+	}
+
+	// 转换为 YAML
+	yamlStr, err := snapshotter.ToYAML(snapshotConfig)
+	if err != nil {
+		return "", fmt.Errorf("failed to convert to YAML: %w", err)
+	}
+
+	return yamlStr, nil
+}
 

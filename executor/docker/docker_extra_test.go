@@ -40,7 +40,7 @@ func TestDockerExecutor_DestructionTerminatesProcess(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 启动一个长时间运行的命令
 	commandChan <- executor.CommandWrapper{
@@ -87,7 +87,7 @@ func TestDockerExecutor_ContextCancelTerminatesProcess(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 启动一个长时间运行的命令
 	commandChan <- executor.CommandWrapper{
@@ -126,7 +126,7 @@ func TestDockerExecutor_Transfer_CommandFailure(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 发送一个会失败的命令
 	commandChan <- executor.CommandWrapper{
@@ -218,7 +218,7 @@ func TestDockerExecutor_TransferWithoutPrepare(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 发送命令
 	commandChan <- executor.CommandWrapper{
@@ -261,7 +261,7 @@ func TestDockerExecutor_UnsupportedDataType(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 发送不支持的类型
 	commandChan <- 12345
@@ -311,7 +311,7 @@ func TestDockerExecutor_VolumeMounting(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 简单测试：检查挂载目录是否存在且可访问
 	commandChan <- executor.CommandWrapper{
@@ -367,7 +367,7 @@ func TestDockerExecutor_EnvVarsInContainer(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 验证环境变量通过检查命令是否成功执行（而不是解析输出）
 	commandChan <- executor.CommandWrapper{
@@ -493,7 +493,7 @@ func TestDockerExecutor_MultipleCommandsSequential(t *testing.T) {
 		resultChan := make(chan any, 10)
 		commandChan := make(chan any, 1)
 
-		go exec.Transfer(ctx, resultChan, commandChan)
+		go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 		commandChan <- executor.CommandWrapper{
 			StepName: cmd.stepName,
@@ -544,7 +544,7 @@ func TestDockerExecutor_LargeOutput(t *testing.T) {
 	resultChan := make(chan any, 100)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 生成大输出
 	commandChan <- executor.CommandWrapper{
@@ -594,7 +594,7 @@ func TestDockerExecutor_ShellDetectionAlpine(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 通过执行 shell 内置命令来检测 shell 类型
 	commandChan <- executor.CommandWrapper{
@@ -645,7 +645,7 @@ func TestDockerExecutor_ShellDetectionUbuntu(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 测试 bash 是否可用
 	commandChan <- executor.CommandWrapper{
@@ -775,7 +775,7 @@ func TestDockerExecutor_WorkdirInContainer(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 检查当前目录是否正确（通过测试相对路径）
 	commandChan <- executor.CommandWrapper{
@@ -825,7 +825,7 @@ func TestDockerExecutor_CommandWithPipe(t *testing.T) {
 	resultChan := make(chan any, 10)
 	commandChan := make(chan any, 1)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 使用管道的命令（通过测试最终结果验证）
 	commandChan <- executor.CommandWrapper{
@@ -895,7 +895,7 @@ func TestDockerExecutor_SpecialCharacters(t *testing.T) {
 			resultChan := make(chan any, 10)
 			commandChan := make(chan any, 1)
 
-			go exec.Transfer(ctx, resultChan, commandChan)
+			go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 			commandChan <- executor.CommandWrapper{
 				StepName: tt.name,
@@ -962,7 +962,7 @@ func TestDockerExecutor_ContainerIsolation(t *testing.T) {
 	// 在第一个容器中创建文件
 	resultChan1 := make(chan any, 10)
 	commandChan1 := make(chan any, 1)
-	go exec1.Transfer(ctx, resultChan1, commandChan1)
+	go exec1.Transfer(ctx, resultChan1, commandChan1, nil)
 	commandChan1 <- executor.CommandWrapper{
 		StepName: "create-file",
 		Command:  "echo 'from-container-1' > /tmp/test_file.txt",
@@ -975,7 +975,7 @@ func TestDockerExecutor_ContainerIsolation(t *testing.T) {
 	// 在第二个容器中检查文件不存在
 	resultChan2 := make(chan any, 10)
 	commandChan2 := make(chan any, 1)
-	go exec2.Transfer(ctx, resultChan2, commandChan2)
+	go exec2.Transfer(ctx, resultChan2, commandChan2, nil)
 	commandChan2 <- executor.CommandWrapper{
 		StepName: "check-file",
 		Command:  "cat /tmp/test_file.txt 2>&1 || echo 'FILE_NOT_FOUND'",
@@ -1049,7 +1049,7 @@ func TestDockerExecutor_ConcurrentCommands(t *testing.T) {
 	resultChan := make(chan any, 30)
 	commandChan := make(chan any, 5)
 
-	go exec.Transfer(ctx, resultChan, commandChan)
+	go exec.Transfer(ctx, resultChan, commandChan, nil)
 
 	// 顺序发送多个命令（Transfer 是顺序处理的）
 	for i := 1; i <= 5; i++ {

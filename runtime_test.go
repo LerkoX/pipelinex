@@ -1639,3 +1639,58 @@ func TestComprehensivePipelineExecution(t *testing.T) {
 	})
 }
 
+// TestRuntimeImpl_ExportConfig 测试导出运行时配置
+func TestRuntimeImpl_ExportConfig(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx)
+
+	config := loadTestConfig(t, "async_pipeline.yaml")
+
+	// 启动异步流水线
+	pipeline, err := runtime.RunAsync(ctx, "test-export", config, nil)
+	if err != nil {
+		t.Fatalf("RunAsync failed: %v", err)
+	}
+
+	// 导出配置
+	yamlStr, err := runtime.ExportConfig("test-export")
+	if err != nil {
+		t.Fatalf("ExportConfig failed: %v", err)
+	}
+
+	if yamlStr == "" {
+		t.Fatal("Exported YAML should not be empty")
+	}
+
+	// 验证导出的 YAML 可以被解析
+	snapshotter := NewPipelineSnapshotter()
+	exportedConfig, err := snapshotter.FromYAML(yamlStr)
+	if err != nil {
+		t.Fatalf("Failed to parse exported YAML: %v", err)
+	}
+
+	// 验证配置包含正确的节点
+	if len(exportedConfig.Nodes) == 0 {
+		t.Error("Exported config should have nodes")
+	}
+
+	// 等待流水线完成
+	select {
+	case <-pipeline.Done():
+	case <-time.After(5 * time.Second):
+		runtime.Cancel(ctx, "test-export")
+	}
+}
+
+// TestRuntimeImpl_ExportConfig_NotFound 测试导出不存在流水线
+func TestRuntimeImpl_ExportConfig_NotFound(t *testing.T) {
+	ctx := context.Background()
+	runtime := NewRuntime(ctx)
+
+	_, err := runtime.ExportConfig("non-existent")
+	if err == nil {
+		t.Fatal("Expected error when exporting non-existent pipeline")
+	}
+}
+
+
