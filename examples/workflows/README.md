@@ -101,7 +101,86 @@ QualityCheck --> SkipDeploy: {{ QualityCheck.allTestsPassed == false or QualityC
 
 ---
 
-### 4. 天气飞书通知工作流 (weather_feishu_notify.yaml)
+### 4. Docker 构建示例工作流 (docker_build_example.yaml)
+
+展示如何使用 **Docker 执行器**运行完整的 CI 流水线，包含以下功能：
+- 代码检出（使用 Alpine 镜像）
+- Go 应用构建（使用 Golang 镜像）
+- 单元测试和覆盖率检查
+- 打包构建产物（使用 Alpine 镜像）
+
+**特性**：
+- **多执行器配置**：不同节点使用不同的 Docker executor，每个配置不同的镜像
+- **数据传递**：使用 `codec-block` 在各节点间传递构建数据
+- **全局配置**：展示 Docker executor 的完整配置选项
+
+**使用方法**：
+```bash
+# 运行前确保 Docker 服务已启动，且有本地镜像可用
+./runner -config docker_build_example.yaml
+```
+
+**Docker Executor 配置示例**：
+```yaml
+Executors:
+  # Alpine 执行器（用于轻量级任务）
+  docker-alpine:
+    type: docker
+    config:
+      registry: "hub.rat.dev"          # 镜像仓库
+      network: bridge                  # 网络模式
+      workdir: /app                    # 工作目录
+      env:                             # 全局环境变量
+        CGO_ENABLED: "0"
+      tty: false                       # TTY 模式
+
+  # Golang 执行器（用于构建任务）
+  docker-golang:
+    type: docker
+    config:
+      registry: "proxy.vvvv.ee"
+      network: bridge
+      workdir: /app
+      env:
+        CGO_ENABLED: "0"
+        GOOS: linux
+        GOARCH: amd64
+        GOPROXY: https://goproxy.cn,direct
+      tty: false
+```
+
+**运行结果示例**：
+```
+=== PipelineX 工作流运行器 ===
+
+=== 运行工作流 ===
+配置文件: docker_build_example.yaml
+----------------------------------------
+Pipeline ID: workflow-docker_build_example-20260403215715
+----------------------------------------
+  状态:   执行中
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Executing node: Checkout
+Executing node: Build
+Executing node: Test
+Executing node: Package
+  状态:   SUCCESS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+----------------------------------------
+流水线执行成功!
+
+节点状态:
+  - Checkout: SUCCESS
+  - Build: SUCCESS
+  - Test: SUCCESS
+  - Package: SUCCESS
+```
+
+---
+
+---
+
+### 5. 天气飞书通知工作流 (weather_feishu_notify.yaml)
 
 天气获取和飞书通知流水线，包含以下功能：
 - 从天气 API 获取当前和未来天气信息

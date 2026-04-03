@@ -1,0 +1,287 @@
+Version: "1.0"
+Name: docker-build-example
+Description: "Docker Executor 示例 - 展示如何使用 Docker 执行器运行完整的 CI 流水线"
+
+# 元数据配置
+Metadate:
+  type: in-config
+  description: "存储构建过程中的元数据"
+  data:
+    projectName: "{{ Param.appName }}"
+    buildVersion: "{{ Param.version }}-{{ Param.buildId }}"
+    buildTime: "{{ now }}"
+
+# 参数配置
+Param:
+  # 应用信息
+  appName: "myapp"
+  version: "1.0.0"
+  buildId: "build-001"
+
+  # 构建配置
+  goVersion: "1.21"
+  workDir: "/app"
+
+  # 输出目录（挂载到容器）
+  outputDir: "./output"
+
+  # 测试配置
+  testTimeout: "30s"
+  coverageThreshold: 80
+
+# 全局执行器配置
+Executors:
+  # Docker 执行器 - 使用 Alpine 镜像（用于检出和打包）
+  docker-alpine:
+    type: docker
+    description: "Docker 执行器 - Alpine 镜像"
+    config:
+      # 使用本地可用的 Alpine 镜像
+      registry: "hub.rat.dev"
+      network: bridge
+      workdir: /app
+      env:
+        CGO_ENABLED: "0"
+      tty: false
+
+  # Docker 执行器 - 使用 Golang 镜像（用于构建和测试）
+  docker-golang:
+    type: docker
+    description: "Docker 执行器 - Golang 镜像"
+    config:
+      # 使用本地可用的 Golang 镜像
+      registry: "proxy.vvvv.ee"
+      network: bridge
+      workdir: /app
+      env:
+        CGO_ENABLED: "0"
+        GOOS: linux
+        GOARCH: amd64
+        GOPROXY: https://goproxy.cn,direct
+      tty: false
+
+# 流水线图定义
+Graph: |
+  stateDiagram-v2
+    direction LR
+    [*] --> Checkout
+    Checkout --> Build
+    Build --> Test
+    Test --> Package
+    Package --> [*]
+
+    note right of Checkout
+      使用 docker-alpine 执行器
+      初始化工作目录
+    end note
+
+    note right of Build
+      使用 docker-golang 执行器
+      编译 Go 应用
+    end note
+
+    note right of Test
+      使用 docker-golang 执行器
+      运行单元测试
+    end note
+
+    note right of Package
+      使用 docker-alpine 执行器
+      打包构建产物
+    end note
+
+# 节点配置
+Nodes:
+  Checkout:
+    name: "代码检出"
+    description: "从 Git 仓库检出代码"
+    executor: docker-alpine
+    extract:
+      type: codec-block
+    steps:
+      - name: init
+        description: "初始化工作目录"
+        run: |
+          echo "初始化工作目录..."
+          mkdir -p /app/src
+          echo '```pipelinex-json'
+          echo '{"status": "initialized", "workDir": "/app/src"}'
+          echo '```'
+
+      - name: clone
+        description: "克隆代码（示例使用 echo 模拟）"
+        run: |
+          echo "正在克隆代码..."
+          echo "项目: {{ Param.appName }}"
+          echo "版本: {{ Param.version }}"
+          cd /app/src
+          # 实际使用: git clone ...
+          echo "代码克隆完成"
+          echo '```pipelinex-json'
+          echo '{"commit": "abc123", "branch": "main", "files": 42}'
+          echo '```'
+
+  Build:
+    name: "编译构建"
+    description: "编译 Go 应用程序"
+    executor: docker-golang
+    extract:
+      type: codec-block
+    steps:
+      - name: version
+        description: "检查 Go 版本"
+        run: |
+          echo "Go 版本:"
+          go version
+          echo "GOPROXY: $GOPROXY"
+
+      - name: build
+        description: "编译应用"
+        run: |
+          echo "开始编译 {{ Param.appName }}..."
+          cd /app/src
+
+          # 模拟构建过程
+          echo "下载依赖..."
+          echo "编译二进制文件..."
+          echo "构建完成"
+
+          # 创建输出目录
+          mkdir -p /output
+
+          # 生成构建信息
+          echo '```pipelinex-json'
+          cat << EOF
+          {
+            "binary": "{{ Param.appName }}",
+            "version": "{{ Param.version }}",
+            "buildId": "{{ Param.buildId }}",
+            "size": "15MB",
+            "output": "/output/{{ Param.appName }}"
+          }
+          EOF
+          echo '```'
+
+      - name: verify
+        description: "验证构建产物"
+        run: |
+          echo "验证构建产物..."
+          echo "应用名称: {{ Param.appName }}"
+          echo "版本: {{ Param.version }}"
+          ls -la /output/ 2>/dev/null || echo "输出目录已准备"
+
+  Test:
+    name: "运行测试"
+    description: "执行单元测试并检查覆盖率"
+    executor: docker-golang
+    extract:
+      type: codec-block
+    steps:
+      - name: unit-test
+        description: "运行单元测试"
+        run: |
+          echo "运行单元测试..."
+          cd /app/src
+
+          # 模拟测试执行
+          echo "测试包: ./..."
+          echo "超时: {{ Param.testTimeout }}"
+          echo ""
+          echo "=== 测试结果 ==="
+          echo "PASS: TestMain"
+          echo "PASS: TestHandler"
+          echo "PASS: TestService"
+          echo "PASS: TestUtils"
+          echo ""
+          echo "覆盖率分析..."
+
+          echo '```pipelinex-json'
+          cat << EOF
+          {
+            "testsRun": 24,
+            "testsPassed": 24,
+            "testsFailed": 0,
+            "coverage": 87.5,
+            "duration": "12.3s"
+          }
+          EOF
+          echo '```'
+
+      - name: coverage-check
+        description: "检查覆盖率阈值"
+        run: |
+          echo "覆盖率检查..."
+          echo "阈值: {{ Param.coverageThreshold }}%"
+          echo "实际: 87.5%"
+          echo "结果: PASS"
+
+  Package:
+    name: "打包产物"
+    description: "打包构建产物为压缩文件"
+    executor: docker-alpine
+    extract:
+      type: codec-block
+    steps:
+      - name: prepare
+        description: "准备打包"
+        run: |
+          echo "准备打包..."
+          echo "应用: {{ Param.appName }}"
+          echo "版本: {{ Param.version }}"
+          echo "构建ID: {{ Param.buildId }}"
+
+      - name: package
+        description: "创建发布包"
+        run: |
+          echo "创建发布包..."
+
+          # 模拟打包过程
+          mkdir -p /output/dist
+
+          packageName="{{ Param.appName }}-{{ Param.version }}-{{ Param.buildId }}-linux-amd64.tar.gz"
+          echo "包名: $packageName"
+
+          # 模拟创建压缩包
+          echo "添加二进制文件..."
+          echo "添加配置文件..."
+          echo "添加文档..."
+          echo "压缩完成"
+
+          echo '```pipelinex-json'
+          cat << EOF
+          {
+            "packageName": "$packageName",
+            "packagePath": "/output/dist/$packageName",
+            "packageSize": "8.5MB",
+            "checksum": "sha256:abc123def456"
+          }
+          EOF
+          echo '```'
+
+      - name: summary
+        description: "构建摘要"
+        run: |
+          echo "========================================"
+          echo "        Docker 构建流水线完成"
+          echo "========================================"
+          echo ""
+          echo "项目: {{ Param.appName }}"
+          echo "版本: {{ Param.version }}"
+          echo "构建ID: {{ Param.buildId }}"
+          echo ""
+          echo "构建产物:"
+          echo "  - 二进制文件: /output/{{ Param.appName }}"
+          echo "  - 发布包: /output/dist/"
+          echo ""
+          echo "测试统计:"
+          echo "  - 通过: 24/24"
+          echo "  - 覆盖率: 87.5%"
+          echo ""
+          echo "========================================"
+
+# 运行时状态（可选，用于恢复）
+Status:
+  Checkout: PENDING
+  Build: PENDING
+  Test: PENDING
+  Package: PENDING
