@@ -253,6 +253,9 @@ func (d *DockerExecutor) executeCommandInContainerStreaming(ctx context.Context,
 
 	var wg sync.WaitGroup
 
+	// 创建一个 done 通道用于通知输入 goroutine 退出
+	done := make(chan struct{})
+
 	// 如果有输入通道，启动输入写入goroutine
 	if inputChan != nil {
 		wg.Add(1)
@@ -261,6 +264,9 @@ func (d *DockerExecutor) executeCommandInContainerStreaming(ctx context.Context,
 			for {
 				select {
 				case <-ctx.Done():
+					return
+				case <-done:
+					// 输出读取出错，退出输入 goroutine
 					return
 				case data, ok := <-inputChan:
 					if !ok {
@@ -277,9 +283,11 @@ func (d *DockerExecutor) executeCommandInContainerStreaming(ctx context.Context,
 	// 读取输出并回调
 	_, err = stdcopy.StdCopy(writer, writer, attachResp.Reader)
 	if err != nil && err != io.EOF {
+		// 通知输入 goroutine 退出
+		close(done)
+		// 等待输入 goroutine 完成
 		wg.Wait()
-
-	return fmt.Errorf("failed to read output: %w", err)
+		return fmt.Errorf("failed to read output: %w", err)
 	}
 
 	// 等待执行完成
@@ -402,19 +410,13 @@ func (d *DockerExecutor) waitForExecCompletion(ctx context.Context, execID strin
 
 			if !inspectResp.Running {
 				if inspectResp.ExitCode != 0 {
-					// 发送错误到 outputDone
-					outputDone <- fmt.Errorf("command exited with code %d", inspectResp.ExitCode)
-					break
+					return fmt.Errorf("command exited with code %d", inspectResp.ExitCode)
 				}
 				// 正常退出
-				break
+				return nil
 			}
 		}
 	}
-
-	// 发送 nil 表示成功
-	outputDone <- nil
-	return nil
 }
 
 // 为 callbackWriter 实现 Write 方法
