@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/LerkoX/pipelinex/executor"
+	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 )
 
 // KubernetesBridge Kubernetes桥接器实现
@@ -248,6 +250,17 @@ func applyConfigToExecutor(config map[string]any, executor *KubernetesExecutor) 
 		}
 	}
 
+	// 应用resources配置（资源限制）
+	if resources, ok := config["resources"]; ok {
+		if resourcesMap, ok := resources.(map[string]any); ok {
+			resReq, err := parseResources(resourcesMap)
+			if err != nil {
+				return fmt.Errorf("invalid resources config: %w", err)
+			}
+			executor.setResources(resReq)
+		}
+	}
+
 	return nil
 }
 
@@ -279,4 +292,66 @@ func parseDurationString(s string) (time.Duration, error) {
 	}
 
 	return 0, fmt.Errorf("invalid duration string: %s", s)
+}
+
+// parseResources 解析资源配置
+// 支持的格式:
+//   cpu: "1000m" 或 "1"
+//   memory: "2Gi" 或 "512Mi"
+func parseResources(config map[string]any) (*corev1.ResourceRequirements, error) {
+	resources := &corev1.ResourceRequirements{
+		Limits:   corev1.ResourceList{},
+		Requests: corev1.ResourceList{},
+	}
+
+	// 解析 limits
+	if limits, ok := config["limits"].(map[string]any); ok {
+		for key, value := range limits {
+			if strValue, ok := value.(string); ok {
+				qty, err := resource.ParseQuantity(strValue)
+				if err != nil {
+					return nil, fmt.Errorf("invalid resource quantity for %s: %w", key, err)
+				}
+				resources.Limits[corev1.ResourceName(key)] = qty
+			}
+		}
+	}
+
+	// 解析 requests
+	if requests, ok := config["requests"].(map[string]any); ok {
+		for key, value := range requests {
+			if strValue, ok := value.(string); ok {
+				qty, err := resource.ParseQuantity(strValue)
+				if err != nil {
+					return nil, fmt.Errorf("invalid resource quantity for %s: %w", key, err)
+				}
+				resources.Requests[corev1.ResourceName(key)] = qty
+			}
+		}
+	}
+
+	// 兼容简单格式（直接配置 cpu/memory，不区分 limits/requests）
+	if cpu, ok := config["cpu"]; ok {
+		if strCpu, ok := cpu.(string); ok {
+			qty, err := resource.ParseQuantity(strCpu)
+			if err != nil {
+				return nil, fmt.Errorf("invalid cpu quantity: %w", err)
+			}
+			resources.Limits[corev1.ResourceCPU] = qty
+			resources.Requests[corev1.ResourceCPU] = qty
+		}
+	}
+
+	if memory, ok := config["memory"]; ok {
+		if strMemory, ok := memory.(string); ok {
+			qty, err := resource.ParseQuantity(strMemory)
+			if err != nil {
+				return nil, fmt.Errorf("invalid memory quantity: %w", err)
+			}
+			resources.Limits[corev1.ResourceMemory] = qty
+			resources.Requests[corev1.ResourceMemory] = qty
+		}
+	}
+
+	return resources, nil
 }

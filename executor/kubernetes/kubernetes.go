@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -35,6 +36,8 @@ type KubernetesExecutor struct {
 	// 用于取消当前执行的命令
 	currentExecCancel context.CancelFunc
 	mu                sync.RWMutex
+	// 资源限制
+	resources *corev1.ResourceRequirements
 }
 
 // NewKubernetesExecutor 创建新的Kubernetes执行器
@@ -134,6 +137,7 @@ func (k *KubernetesExecutor) Prepare(ctx context.Context) error {
 
 // Destruction 销毁Kubernetes环境
 // 删除Pod
+// 使用独立的背景上下文确保即使调用者的上下文已取消，也能完成清理
 func (k *KubernetesExecutor) Destruction(ctx context.Context) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -142,15 +146,25 @@ func (k *KubernetesExecutor) Destruction(ctx context.Context) error {
 		return nil
 	}
 
+	// 使用独立的背景上下文和超时，确保清理操作能完成
+	// 即使调用者的上下文已被取消（如用户中断执行）
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	// 删除Pod
 	deletePolicy := metav1.DeletePropagationBackground
 	gracePeriod := int64(10)
-	err := k.client.CoreV1().Pods(k.namespace).Delete(ctx, k.podName, metav1.DeleteOptions{
+	err := k.client.CoreV1().Pods(k.namespace).Delete(cleanupCtx, k.podName, metav1.DeleteOptions{
 		PropagationPolicy:  &deletePolicy,
 		GracePeriodSeconds: &gracePeriod,
 	})
 
 	if err != nil {
+		// 如果 Pod 已被删除（NotFound），不算错误
+		if strings.Contains(err.Error(), "not found") {
+			k.podName = ""
+			return nil
+		}
 		return fmt.Errorf("failed to delete pod: %w", err)
 	}
 
@@ -242,6 +256,11 @@ func (k *KubernetesExecutor) buildPodSpec() *corev1.Pod {
 	// 设置卷挂载
 	if len(volumeMounts) > 0 {
 		container.VolumeMounts = volumeMounts
+	}
+
+	// 设置资源限制
+	if k.resources != nil {
+		container.Resources = *k.resources
 	}
 
 	// 构建Pod配置
@@ -523,10 +542,44 @@ func (f *fixedTerminalSize) Next() *remotecommand.TerminalSize {
 func (k *KubernetesExecutor) detectShell() string {
 	// 根据镜像类型选择shell
 	image := k.image
-	if containsIgnoreCase(image, "alpine") || containsIgnoreCase(image, "busybox") {
+
+	// 提取镜像名称（去掉 registry 前缀和 tag 后缀）
+	// 例如: hub.rat.dev/library/alpine:latest -> alpine
+	imageName := extractImageName(image)
+
+	if containsIgnoreCase(imageName, "alpine") || containsIgnoreCase(imageName, "busybox") {
 		return "/bin/sh"
 	}
 	return "/bin/bash"
+}
+
+// extractImageName 从完整镜像名称中提取镜像名称部分
+// 例如: "hub.rat.dev/library/alpine:latest" -> "alpine"
+func extractImageName(image string) string {
+	if image == "" {
+		return ""
+	}
+
+	// 去掉 tag 部分
+	if idx := strings.LastIndex(image, ":"); idx != -1 {
+		// 检查是否是端口（如 localhost:5000）而非 tag
+		afterColon := image[idx+1:]
+		if !strings.Contains(afterColon, "/") {
+			image = image[:idx]
+		}
+	}
+
+	// 去掉 digest 部分 (@sha256:...)
+	if idx := strings.Index(image, "@"); idx != -1 {
+		image = image[:idx]
+	}
+
+	// 提取最后一部分（镜像名称）
+	if idx := strings.LastIndex(image, "/"); idx != -1 {
+		return image[idx+1:]
+	}
+
+	return image
 }
 
 // containsIgnoreCase 不区分大小写包含检查
@@ -620,6 +673,13 @@ func (k *KubernetesExecutor) setPodReadyTimeout(timeout time.Duration) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.podReadyTimeout = timeout
+}
+
+// setResources 设置资源限制
+func (k *KubernetesExecutor) setResources(resources *corev1.ResourceRequirements) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.resources = resources
 }
 
 // GetPodName 获取Pod名称
