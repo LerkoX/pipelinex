@@ -651,11 +651,28 @@ func (p *WorkflowImpl) handleResult(ctx context.Context, node Node, _ executor.E
 	case []byte:
 		// 实时输出 - 通过 pusher 推送
 		output := string(v)
+		level := logger.LevelInfo
+		// 行首级别标记约定：节点输出以 [flowx:error] / [flowx:warn] / [flowx:debug]
+		// 开头时按对应级别记录（剥离标记），便于前端按级别提示节点异常
+		for _, m := range []struct {
+			prefix string
+			level  logger.Level
+		}{
+			{"[flowx:error]", logger.LevelError},
+			{"[flowx:warn]", logger.LevelWarn},
+			{"[flowx:debug]", logger.LevelDebug},
+		} {
+			if strings.HasPrefix(output, m.prefix) {
+				level = m.level
+				output = strings.TrimPrefix(strings.TrimPrefix(output, m.prefix), " ")
+				break
+			}
+		}
 		if p.pusher != nil {
 			p.pusher.Push(ctx, logger.Entry{
 				Workflow: p.Id(),
 				Node:     node.Id(),
-				Level:    logger.LevelInfo,
+				Level:    level,
 				Message:  output,
 				Output:   output,
 			})
