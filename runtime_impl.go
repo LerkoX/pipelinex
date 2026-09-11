@@ -334,8 +334,9 @@ func (r *RuntimeImpl) prepareWorkflow(ctx context.Context, id string, config str
 		return nil, fmt.Errorf("failed to render config: %w", err)
 	}
 
-	// 创建流水线
-	workflow := dag.NewWorkflow(ctx)
+	// 创建流水线：使用注册 ID（宿主传入的稳定身份，如 exec-<执行ID>）作为
+	// 流水线实例 ID，保证同一执行的 RunAsync/LoadWorkflow/Rerun 保持一致
+	workflow := dag.NewWorkflowWithId(ctx, id)
 	workflow.SetTemplateEngine(templateEngine)
 	workflow.SetPusher(r.pusher)
 	workflow.SetPusher(r.pusher)
@@ -427,8 +428,9 @@ func (r *RuntimeImpl) RunSync(ctx context.Context, id string, config string, lis
 		return nil, fmt.Errorf("failed to render config: %w", err)
 	}
 
-	// 创建流水线
-	workflow := dag.NewWorkflow(ctx)
+	// 创建流水线：使用注册 ID（宿主传入的稳定身份，如 exec-<执行ID>）作为
+	// 流水线实例 ID，保证同一执行的 RunAsync/LoadWorkflow/Rerun 保持一致
+	workflow := dag.NewWorkflowWithId(ctx, id)
 	workflow.SetTemplateEngine(r.GetTemplateEngine())
 	workflow.SetPusher(r.pusher)
 	workflow.SetPusher(r.pusher)

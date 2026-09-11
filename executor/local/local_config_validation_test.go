@@ -23,7 +23,7 @@ func TestExecuteCommandWithStreaming_Workdir(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "pwd", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "pwd", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -60,7 +60,7 @@ func TestExecuteCommandWithStreaming_EnvVars(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "echo $TEST_VAR $ANOTHER_VAR", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "echo $TEST_VAR $ANOTHER_VAR", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -100,7 +100,7 @@ func TestExecuteCommandWithStreaming_ShellSetting(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "echo $0", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "echo $0", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -157,7 +157,7 @@ func TestExecuteCommandWithStreaming_InvalidCommand(t *testing.T) {
 	ctx := context.Background()
 	callback := func(data []byte) {}
 
-	err := exec.executeCommandWithStreaming(ctx, "/nonexistent/command/that/does/not/exist", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "/nonexistent/command/that/does/not/exist", "test", nil, callback, nil, nil)
 
 	if err == nil {
 		t.Fatal("Expected error for non-existent command")
@@ -172,7 +172,7 @@ func TestExecuteCommandWithStreaming_InvalidShell(t *testing.T) {
 	ctx := context.Background()
 	callback := func(data []byte) {}
 
-	err := exec.executeCommandWithStreaming(ctx, "echo test", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "echo test", "test", nil, callback, nil, nil)
 
 	if err == nil {
 		t.Fatal("Expected error for invalid shell")

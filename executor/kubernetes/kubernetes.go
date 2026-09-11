@@ -172,7 +172,7 @@ func (k *KubernetesExecutor) Transfer(ctx context.Context, resultChan chan<- any
 			continue
 		}
 		// 执行命令（携带步骤名称）
-		k.executeCommandStreaming(execCtx, cmdWrapper.Command, cmdWrapper.StepName, resultChan, inputChan)
+		k.executeCommandStreaming(execCtx, cmdWrapper.Command, cmdWrapper.StepName, cmdWrapper.Env, resultChan, inputChan)
 	}
 }
 
@@ -311,7 +311,7 @@ func (k *KubernetesExecutor) waitForPodRunning(ctx context.Context) error {
 }
 
 // executeCommandStreaming 执行命令并实时流式输出
-func (k *KubernetesExecutor) executeCommandStreaming(ctx context.Context, command string, stepName string, resultChan chan<- any, inputChan <-chan []byte) {
+func (k *KubernetesExecutor) executeCommandStreaming(ctx context.Context, command string, stepName string, env map[string]string, resultChan chan<- any, inputChan <-chan []byte) {
 	startTime := time.Now()
 
 	inputRequestChan := make(chan *executor.InputRequest, 1)
@@ -338,7 +338,7 @@ func (k *KubernetesExecutor) executeCommandStreaming(ctx context.Context, comman
 		}
 	}()
 
-	err := k.executeCommandInPodStreaming(ctx, command, func(data []byte) {
+	err := k.executeCommandInPodStreaming(ctx, command, env, func(data []byte) {
 		resultChan <- data
 	}, inputChan, onInputRequest)
 
@@ -355,7 +355,10 @@ func (k *KubernetesExecutor) executeCommandStreaming(ctx context.Context, comman
 
 // executeCommandInPodStreaming 在Pod中执行命令并实时流式输出
 // 当 ctx 被取消时，会向进程发送 Ctrl+C 信号 (\x03)
-func (k *KubernetesExecutor) executeCommandInPodStreaming(ctx context.Context, command string, outputCallback func([]byte), inputChan <-chan []byte, onInputRequest func(*executor.InputRequest)) error {
+func (k *KubernetesExecutor) executeCommandInPodStreaming(ctx context.Context, command string, env map[string]string, outputCallback func([]byte), inputChan <-chan []byte, onInputRequest func(*executor.InputRequest)) error {
+	// k8s exec API 不支持命令级环境变量：在命令前拼接 export 行兜底。
+	// 值已是渲染终值，单引号转义后拼入命令文本是安全的
+	command = executor.EnvExportPrefix(env) + command
 	k.mu.RLock()
 	podName := k.podName
 	namespace := k.namespace

@@ -63,8 +63,10 @@ type StepResult struct {
 
 // CommandWrapper 包装命令，携带步骤元信息用于精确映射
 type CommandWrapper struct {
-	StepName string // 步骤名称
-	Command  string // 要执行的命令
+	StepName string            // 步骤名称
+	Command  string            // 要执行的命令
+	Env      map[string]string // 命令级环境变量（已渲染终值）：执行器尽量以真实进程
+	                           // 环境变量注入；不支持时在命令前拼接单引号转义的 export 行
 }
 
 // InputRequest 输入请求信息

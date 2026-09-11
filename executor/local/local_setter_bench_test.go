@@ -112,7 +112,7 @@ func TestExecuteCommandStreaming_ResultFormat(t *testing.T) {
 	inputChan := make(chan []byte)
 
 	start := time.Now()
-	exec.executeCommandStreaming(ctx, "echo test", "test_step", resultChan, inputChan)
+	exec.executeCommandStreaming(ctx, "echo test", "test_step", nil, resultChan, inputChan)
 	close(resultChan)
 	elapsed := time.Since(start)
 
@@ -270,7 +270,7 @@ func TestExecuteCommandWithStreaming_ExitError(t *testing.T) {
 	ctx := context.Background()
 	callback := func(data []byte) {}
 
-	err := exec.executeCommandWithStreaming(ctx, "exit 1", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "exit 1", "test", nil, callback, nil, nil)
 	if err == nil {
 		t.Fatal("Expected error for exit code 1")
 	}

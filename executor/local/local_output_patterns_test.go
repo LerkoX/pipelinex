@@ -24,7 +24,7 @@ func TestExecuteCommandWithStreaming_LongLine(t *testing.T) {
 	}
 
 	longLine := strings.Repeat("x", 100000)
-	err := exec.executeCommandWithStreaming(ctx, fmt.Sprintf("echo '%s'", longLine), "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, fmt.Sprintf("echo '%s'", longLine), "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -52,7 +52,7 @@ func TestExecuteCommandWithStreaming_ManyLines(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "for i in $(seq 1 1000); do echo line$i; done", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "for i in $(seq 1 1000); do echo line$i; done", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -81,7 +81,7 @@ func TestExecuteCommandWithStreaming_RapidOutput(t *testing.T) {
 	}
 
 	start := time.Now()
-	err := exec.executeCommandWithStreaming(ctx, "for i in $(seq 1 100); do echo $i; done", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "for i in $(seq 1 100); do echo $i; done", "test", nil, callback, nil, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -115,7 +115,7 @@ func TestExecuteCommandWithStreaming_SlowOutput(t *testing.T) {
 	}
 
 	start := time.Now()
-	err := exec.executeCommandWithStreaming(ctx, "for i in 1 2 3; do echo $i; sleep 0.1; done", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "for i in 1 2 3; do echo $i; sleep 0.1; done", "test", nil, callback, nil, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -148,7 +148,7 @@ func TestExecuteCommandWithStreaming_InterleavedOutput(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "for i in 1 2 3; do echo out$i; echo err$i >\u00262; done", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "for i in 1 2 3; do echo out$i; echo err$i >\u00262; done", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -176,7 +176,7 @@ func TestExecuteCommandWithStreaming_PartialLine(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `printf 'partial'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `printf 'partial'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -204,7 +204,7 @@ func TestExecuteCommandWithStreaming_EmptyLines(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `echo ''; echo ''; echo 'done'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `echo ''; echo ''; echo 'done'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -232,7 +232,7 @@ func TestExecuteCommandWithStreaming_WhitespaceLines(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `echo '   '; echo 'done'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `echo '   '; echo 'done'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -260,7 +260,7 @@ func TestExecuteCommandWithStreaming_TrailingNewline(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `echo 'with newline'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `echo 'with newline'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -288,7 +288,7 @@ func TestExecuteCommandWithStreaming_NoTrailingNewline(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `printf 'no newline'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `printf 'no newline'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -319,7 +319,7 @@ func TestExecuteCommandWithStreaming_MultipleTrailingNewlines(t *testing.T) {
 	err := exec.executeCommandWithStreaming(ctx, `printf 'done
 
 
-'`, "test", callback, nil, nil)
+'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -349,7 +349,7 @@ func TestExecuteCommandWithStreaming_CarriageReturnNewline(t *testing.T) {
 
 	err := exec.executeCommandWithStreaming(ctx, `printf 'line1
 line2
-'`, "test", callback, nil, nil)
+'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -381,7 +381,7 @@ func TestExecuteCommandWithStreaming_MixedLineEndings(t *testing.T) {
 line2
 line3
 line4
-'`, "test", callback, nil, nil)
+'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)

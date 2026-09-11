@@ -31,7 +31,7 @@ func TestExecuteCommandWithStreaming_VeryLargeInput(t *testing.T) {
 	}()
 
 	start := time.Now()
-	err := exec.executeCommandWithStreaming(ctx, "cat", "test", callback, inputChan, nil)
+	err := exec.executeCommandWithStreaming(ctx, "cat", "test", nil, callback, inputChan, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -74,7 +74,7 @@ func TestExecuteCommandWithStreaming_VerySlowInput(t *testing.T) {
 	}()
 
 	start := time.Now()
-	err := exec.executeCommandWithStreaming(ctx, "cat", "test", callback, inputChan, nil)
+	err := exec.executeCommandWithStreaming(ctx, "cat", "test", nil, callback, inputChan, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -116,7 +116,7 @@ func TestExecuteCommandWithStreaming_VeryFastInput(t *testing.T) {
 	}()
 
 	start := time.Now()
-	err := exec.executeCommandWithStreaming(ctx, "cat", "test", callback, inputChan, nil)
+	err := exec.executeCommandWithStreaming(ctx, "cat", "test", nil, callback, inputChan, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -155,7 +155,7 @@ func TestExecuteCommandWithStreaming_MixedInputOutput(t *testing.T) {
 	inputChan <- []byte("done\n")
 	close(inputChan)
 
-	err := exec.executeCommandWithStreaming(ctx, "cat", "test", callback, inputChan, nil)
+	err := exec.executeCommandWithStreaming(ctx, "cat", "test", nil, callback, inputChan, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -212,7 +212,7 @@ func TestExecuteCommandWithStreaming_ConcurrentInputOutput(t *testing.T) {
 		close(inputChan)
 	}()
 
-	err := exec.executeCommandWithStreaming(ctx, "cat", "test", callback, inputChan, nil)
+	err := exec.executeCommandWithStreaming(ctx, "cat", "test", nil, callback, inputChan, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -248,7 +248,7 @@ func TestExecuteCommandWithStreaming_LargeConcurrentInputOutput(t *testing.T) {
 		close(inputChan)
 	}()
 
-	err := exec.executeCommandWithStreaming(ctx, "cat", "test", callback, inputChan, nil)
+	err := exec.executeCommandWithStreaming(ctx, "cat", "test", nil, callback, inputChan, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -285,7 +285,7 @@ func TestExecuteCommandWithStreaming_VeryLargeConcurrentInputOutput(t *testing.T
 	}()
 
 	start := time.Now()
-	err := exec.executeCommandWithStreaming(ctx, "cat", "test", callback, inputChan, nil)
+	err := exec.executeCommandWithStreaming(ctx, "cat", "test", nil, callback, inputChan, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -328,7 +328,7 @@ func TestExecuteCommandWithStreaming_SlowConcurrentInputOutput(t *testing.T) {
 	}()
 
 	start := time.Now()
-	err := exec.executeCommandWithStreaming(ctx, "cat", "test", callback, inputChan, nil)
+	err := exec.executeCommandWithStreaming(ctx, "cat", "test", nil, callback, inputChan, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -371,7 +371,7 @@ func TestExecuteCommandWithStreaming_FastConcurrentInputOutput(t *testing.T) {
 	}()
 
 	start := time.Now()
-	err := exec.executeCommandWithStreaming(ctx, "cat", "test", callback, inputChan, nil)
+	err := exec.executeCommandWithStreaming(ctx, "cat", "test", nil, callback, inputChan, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -414,7 +414,7 @@ func TestExecuteCommandWithStreaming_MixedConcurrentInputOutput(t *testing.T) {
 		close(inputChan)
 	}()
 
-	err := exec.executeCommandWithStreaming(ctx, "cat", "test", callback, inputChan, nil)
+	err := exec.executeCommandWithStreaming(ctx, "cat", "test", nil, callback, inputChan, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)

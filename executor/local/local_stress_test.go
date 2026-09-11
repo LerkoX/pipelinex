@@ -25,7 +25,7 @@ func TestExecuteCommandWithStreaming_VeryLongLine(t *testing.T) {
 	}
 
 	veryLongLine := strings.Repeat("x", 2*1024*1024)
-	err := exec.executeCommandWithStreaming(ctx, fmt.Sprintf("echo '%s'", veryLongLine), "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, fmt.Sprintf("echo '%s'", veryLongLine), "test", nil, callback, nil, nil)
 
 	if err == nil {
 		t.Fatal("Expected error for oversized line")
@@ -50,7 +50,7 @@ func TestExecuteCommandWithStreaming_VeryManyLines(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "for i in $(seq 1 10000); do echo line$i; done", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "for i in $(seq 1 10000); do echo line$i; done", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -79,7 +79,7 @@ func TestExecuteCommandWithStreaming_VeryFastOutput(t *testing.T) {
 	}
 
 	start := time.Now()
-	err := exec.executeCommandWithStreaming(ctx, "for i in $(seq 1 100000); do echo $i; done", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "for i in $(seq 1 100000); do echo $i; done", "test", nil, callback, nil, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -113,7 +113,7 @@ func TestExecuteCommandWithStreaming_VerySlowOutput(t *testing.T) {
 	}
 
 	start := time.Now()
-	err := exec.executeCommandWithStreaming(ctx, "for i in 1 2 3; do echo $i; sleep 1; done", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "for i in 1 2 3; do echo $i; sleep 1; done", "test", nil, callback, nil, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -151,7 +151,7 @@ func TestExecuteCommandWithStreaming_StressTest(t *testing.T) {
 	}
 
 	start := time.Now()
-	err := exec.executeCommandWithStreaming(ctx, "for i in $(seq 1 10000); do echo $(seq 1 100 | tr -d '\\n'); done", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "for i in $(seq 1 10000); do echo $(seq 1 100 | tr -d '\\n'); done", "test", nil, callback, nil, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -190,7 +190,7 @@ func TestExecuteCommandWithStreaming_MemoryStressTest(t *testing.T) {
 
 	start := time.Now()
 	// 减小输出规模，避免在有限内存/缓冲区环境下超时
-	err := exec.executeCommandWithStreaming(ctx, "python3 -c \"print('x' * 10000000)\"", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "python3 -c \"print('x' * 10000000)\"", "test", nil, callback, nil, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -223,7 +223,7 @@ func TestExecuteCommandWithStreaming_GoroutineLeakStressTest(t *testing.T) {
 	initialGoroutines := runtime.NumGoroutine()
 
 	for i := 0; i < 1000; i++ {
-		err := exec.executeCommandWithStreaming(ctx, "echo test", "test", callback, nil, nil)
+		err := exec.executeCommandWithStreaming(ctx, "echo test", "test", nil, callback, nil, nil)
 		if err != nil {
 			t.Errorf("Command %d failed: %v", i, err)
 		}
@@ -255,7 +255,7 @@ func TestExecuteCommandWithStreaming_ContextCancellationStressTest(t *testing.T)
 			cancel()
 		}()
 
-		err := exec.executeCommandWithStreaming(ctx, "sleep 10", "test", callback, nil, nil)
+		err := exec.executeCommandWithStreaming(ctx, "sleep 10", "test", nil, callback, nil, nil)
 		if err == nil {
 			t.Errorf("Command %d: Expected error due to context cancellation", i)
 		}
@@ -275,7 +275,7 @@ func TestExecuteCommandWithStreaming_TimeoutStressTest(t *testing.T) {
 
 	for i := 0; i < 100; i++ {
 		ctx := context.Background()
-		err := exec.executeCommandWithStreaming(ctx, "sleep 10", "test", callback, nil, nil)
+		err := exec.executeCommandWithStreaming(ctx, "sleep 10", "test", nil, callback, nil, nil)
 		if err == nil {
 			t.Errorf("Command %d: Expected timeout error", i)
 			continue
@@ -310,7 +310,7 @@ func TestExecuteCommandWithStreaming_ConcurrentStressTest(t *testing.T) {
 				outputs = append(outputs, string(data))
 			}
 
-			err := exec.executeCommandWithStreaming(ctx, fmt.Sprintf("echo %d", index), "test", callback, nil, nil)
+			err := exec.executeCommandWithStreaming(ctx, fmt.Sprintf("echo %d", index), "test", nil, callback, nil, nil)
 			if err != nil {
 				t.Errorf("Command %d failed: %v", index, err)
 			}
@@ -353,7 +353,7 @@ func TestExecuteCommandWithStreaming_LargeOutputStressTest(t *testing.T) {
 	}
 
 	start := time.Now()
-	err := exec.executeCommandWithStreaming(ctx, "python3 -c \"print('x' * 1000000000)\"", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "python3 -c \"print('x' * 1000000000)\"", "test", nil, callback, nil, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -397,7 +397,7 @@ func TestExecuteCommandWithStreaming_LargeInputStressTest(t *testing.T) {
 	}()
 
 	start := time.Now()
-	err := exec.executeCommandWithStreaming(ctx, "cat", "test", callback, inputChan, nil)
+	err := exec.executeCommandWithStreaming(ctx, "cat", "test", nil, callback, inputChan, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -443,7 +443,7 @@ func TestExecuteCommandWithStreaming_LargeConcurrentInputOutputStressTest(t *tes
 	}()
 
 	start := time.Now()
-	err := exec.executeCommandWithStreaming(ctx, "cat", "test", callback, inputChan, nil)
+	err := exec.executeCommandWithStreaming(ctx, "cat", "test", nil, callback, inputChan, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {
@@ -489,7 +489,7 @@ func TestExecuteCommandWithStreaming_VeryLargeConcurrentInputOutputStressTest(t 
 	}()
 
 	start := time.Now()
-	err := exec.executeCommandWithStreaming(ctx, "cat", "test", callback, inputChan, nil)
+	err := exec.executeCommandWithStreaming(ctx, "cat", "test", nil, callback, inputChan, nil)
 	elapsed := time.Since(start)
 
 	if err != nil {

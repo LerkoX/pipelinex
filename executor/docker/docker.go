@@ -262,13 +262,13 @@ func (d *DockerExecutor) Transfer(ctx context.Context, resultChan chan<- any, co
 				continue
 			}
 			// 执行命令（携带步骤名称）
-			d.executeCommandStreaming(execCtx, cmdWrapper.Command, cmdWrapper.StepName, resultChan, inputChan)
+			d.executeCommandStreaming(execCtx, cmdWrapper.Command, cmdWrapper.StepName, cmdWrapper.Env, resultChan, inputChan)
 		}
 	}
 }
 
 // executeCommandStreaming 执行命令并实时流式输出
-func (d *DockerExecutor) executeCommandStreaming(ctx context.Context, command string, stepName string, resultChan chan<- any, inputChan <-chan []byte) {
+func (d *DockerExecutor) executeCommandStreaming(ctx context.Context, command string, stepName string, env map[string]string, resultChan chan<- any, inputChan <-chan []byte) {
 	startTime := time.Now()
 
 	inputRequestChan := make(chan *executor.InputRequest, 1)
@@ -295,7 +295,7 @@ func (d *DockerExecutor) executeCommandStreaming(ctx context.Context, command st
 		}
 	}()
 
-	err := d.executeCommandInContainerStreaming(ctx, command, func(data []byte) {
+	err := d.executeCommandInContainerStreaming(ctx, command, env, func(data []byte) {
 		safeSend(resultChan, data)
 	}, inputChan, onInputRequest)
 
@@ -311,7 +311,7 @@ func (d *DockerExecutor) executeCommandStreaming(ctx context.Context, command st
 }
 
 // executeCommandInContainerStreaming 在容器中执行命令并实时流式输出
-func (d *DockerExecutor) executeCommandInContainerStreaming(ctx context.Context, command string, outputCallback func([]byte), inputChan <-chan []byte, onInputRequest func(*executor.InputRequest)) error {
+func (d *DockerExecutor) executeCommandInContainerStreaming(ctx context.Context, command string, env map[string]string, outputCallback func([]byte), inputChan <-chan []byte, onInputRequest func(*executor.InputRequest)) error {
 	d.mu.RLock()
 	containerID := d.containerID
 	d.mu.RUnlock()
@@ -328,6 +328,14 @@ func (d *DockerExecutor) executeCommandInContainerStreaming(ctx context.Context,
 		AttachStderr: true,
 		AttachStdin:  inputChan != nil,
 		Tty:          d.tty,
+	}
+	// 命令级环境变量（dag 渲染终值）经 exec 配置真实注入，不经 shell 解析
+	if len(env) > 0 {
+		envList := make([]string, 0, len(env))
+		for k, v := range env {
+			envList = append(envList, k+"="+v)
+		}
+		execConfig.Env = envList
 	}
 
 	execResp, err := d.client.ContainerExecCreate(ctx, containerID, execConfig)

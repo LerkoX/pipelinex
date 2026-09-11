@@ -26,7 +26,7 @@ func TestExecuteCommandWithStreaming_InteractiveCommand(t *testing.T) {
 	inputChan <- []byte("no\n")
 	close(inputChan)
 
-	err := exec.executeCommandWithStreaming(ctx, "cat", "test", callback, inputChan, nil)
+	err := exec.executeCommandWithStreaming(ctx, "cat", "test", nil, callback, inputChan, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -67,7 +67,7 @@ func TestExecuteCommandWithStreaming_BackgroundProcess(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "(sleep 1 &) && echo done", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "(sleep 1 &) && echo done", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -102,7 +102,7 @@ func TestExecuteCommandWithStreaming_SubShell(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "(echo sub1; echo sub2)", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "(echo sub1; echo sub2)", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -143,7 +143,7 @@ func TestExecuteCommandWithStreaming_CommandSubstitution(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "echo $(echo replaced)", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "echo $(echo replaced)", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -179,7 +179,7 @@ func TestExecuteCommandWithStreaming_VariableExpansion(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "echo $MY_VAR", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "echo $MY_VAR", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -214,7 +214,7 @@ func TestExecuteCommandWithStreaming_GlobPattern(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "ls /tmp/* 2>/dev/null || echo 'no files'", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "ls /tmp/* 2>/dev/null || echo 'no files'", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)

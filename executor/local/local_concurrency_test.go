@@ -21,7 +21,7 @@ func TestExecuteCommandWithStreaming_ContextCancellation(t *testing.T) {
 		cancel()
 	}()
 
-	err := exec.executeCommandWithStreaming(ctx, "sleep 10", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "sleep 10", "test", nil, callback, nil, nil)
 
 	if err == nil {
 		t.Fatal("Expected error due to context cancellation")

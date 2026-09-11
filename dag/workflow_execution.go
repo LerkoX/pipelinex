@@ -504,6 +504,11 @@ func (p *WorkflowImpl) setupExecutorChannels(ctx context.Context, exec executor.
 	return commandChan, resultChan, inputChan
 }
 
+// shellQuoteSingle 用单引号包裹字符串供 shell export 使用（转义内部单引号）
+func shellQuoteSingle(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `"'\''`) + "'"
+}
+
 // sendCommands 发送所有步骤命令
 func (p *WorkflowImpl) sendCommands(ctx context.Context, node Node, commandChan chan any, steps []core.Step) {
 	defer close(commandChan)
@@ -520,16 +525,38 @@ func (p *WorkflowImpl) sendCommands(ctx context.Context, node Node, commandChan 
 			continue
 		}
 
+		// 节点级渲染上下文：节点 params 绑定优先于 workflow 级 Param
+		nodeCtx := p.buildNodeRenderContext(node)
+
 		// 运行时渲染 step.Run，可以引用前面节点 extract 的数据
-		renderedRun, err := p.renderStringWithRuntimeContext(step.Run)
+		renderedRun, err := p.renderNodeStringWithContext(node, nodeCtx, step.Run)
 		if err != nil {
 			fmt.Printf("Failed to render step %s: %v, using original command\n", step.Name, err)
 			renderedRun = step.Run // 渲染失败时使用原始命令
 		}
 
+		// 环境变量随命令下发，由执行器以真实进程环境变量注入
+		//（不经 shell 解析，值中的引号/换行/特殊字符天然安全；
+		//  不支持 env 的执行器由其在渲染后做单引号转义兑底）。
+		// 运行时身份变量：节点可据此区分不同执行实例/节点，实现按执行隔离的
+		// 持久化状态（如交互会话：新执行开新会话，同一执行的续跑/重入才复用）。
+		env := map[string]string{
+			"FLOWX_WORKFLOW_ID": p.Id(),
+			"FLOWX_NODE_ID":     node.Id(),
+		}
+		for k, v := range nodeStringMap(node, "env") {
+			rendered, rerr := p.renderNodeStringWithContext(node, nodeCtx, v)
+			if rerr != nil {
+				fmt.Printf("Failed to render env %s for node %s: %v, using raw value\n", k, node.Id(), rerr)
+				rendered = v
+			}
+			env[k] = rendered // 节点显式 env 优先于内置身份变量
+		}
+
 		commandChan <- executor.CommandWrapper{
 			StepName: step.Name,
 			Command:  renderedRun,
+			Env:      env,
 		}
 	}
 }

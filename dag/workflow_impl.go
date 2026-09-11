@@ -39,8 +39,18 @@ type WorkflowImpl struct {
 }
 
 func NewWorkflow(ctx context.Context) Workflow {
+	return NewWorkflowWithId(ctx, "")
+}
+
+// NewWorkflowWithId 使用指定 ID 创建流水线；id 为空时退回随机 UUID。
+// 宿主（如 flowx-studio）可传入稳定的外部身份（执行实例 ID），使同一执行的
+// 续跑/重入保持同一 FLOWX_WORKFLOW_ID，节点可据此做按执行隔离的状态持久化。
+func NewWorkflowWithId(ctx context.Context, id string) Workflow {
+	if id == "" {
+		id = core.NewUUID()
+	}
 	p := &WorkflowImpl{
-		id:          core.NewUUID(),
+		id:          id,
 		executors:   make(map[string]executor.Executor),
 		doneChan:    make(chan struct{}),
 		maxLoopIter: 100, // 默认最大迭代次数
@@ -530,5 +540,82 @@ func (p *WorkflowImpl) renderStringWithRuntimeContext(templateStr string) (strin
 		return templateStr, nil // 没有模板引擎，返回原始值
 	}
 	ctx := p.buildRenderContext()
+	return engine.EvaluateString(templateStr, ctx)
+}
+
+// nodeStringMap 从节点配置包读取 map[string]string 类型的保留键（params/env）。
+// 兼容 YAML 反序列化出的 map[string]interface{}。
+func nodeStringMap(node Node, key string) map[string]string {
+	cfg := node.GetConfig()
+	if cfg == nil {
+		return nil
+	}
+	raw, ok := cfg[key]
+	if !ok || raw == nil {
+		return nil
+	}
+	switch m := raw.(type) {
+	case map[string]string:
+		return m
+	case map[string]interface{}:
+		out := make(map[string]string, len(m))
+		for k, v := range m {
+			out[k] = fmt.Sprintf("%v", v)
+		}
+		return out
+	case map[interface{}]interface{}: // yaml.v2 反序列化的默认 map 类型
+		out := make(map[string]string, len(m))
+		for k, v := range m {
+			out[fmt.Sprintf("%v", k)] = fmt.Sprintf("%v", v)
+		}
+		return out
+	}
+	return nil
+}
+
+// buildNodeRenderContext 在 workflow 渲染上下文基础上叠加节点级参数绑定（params）：
+// 渲染本节点模板时 {{ Param.<name> }} 优先解析到节点绑定，未绑定的回退 workflow 级 Param。
+// 绑定值本身是模板（如 {{ Param.project_dir }}/backend、{{ Upstream.city }}）时，
+// 先在 workflow 上下文求值再代入——绑定模板里的 Param 引用一律指向 workflow 级 Param，
+// 不存在绑定间互相引用，因此无循环引用风险。
+func (p *WorkflowImpl) buildNodeRenderContext(node Node) map[string]any {
+	ctx := p.buildRenderContext()
+	params := nodeStringMap(node, "params")
+	if len(params) == 0 {
+		return ctx
+	}
+	engine := p.GetTemplateEngine()
+	baseParam, _ := ctx["Param"].(map[string]any)
+	merged := make(map[string]any, len(baseParam)+len(params))
+	for k, v := range baseParam {
+		merged[k] = v
+	}
+	for k, v := range params {
+		if engine != nil && strings.Contains(v, "{{") {
+			rendered, err := engine.EvaluateString(v, ctx)
+			if err != nil {
+				fmt.Printf("Warning: node %s param %q render failed: %v, using raw value\n", node.Id(), k, err)
+				merged[k] = v
+				continue
+			}
+			merged[k] = rendered
+		} else {
+			merged[k] = v
+		}
+	}
+	ctx["Param"] = merged
+	// 与 buildRenderContext 的顶层展开语义一致：绑定值也展开到顶层，支持直接引用
+	for k := range params {
+		ctx[k] = merged[k]
+	}
+	return ctx
+}
+
+// renderNodeStringWithContext 使用节点级渲染上下文渲染字符串（step.Run / env 值）
+func (p *WorkflowImpl) renderNodeStringWithContext(node Node, ctx map[string]any, templateStr string) (string, error) {
+	engine := p.GetTemplateEngine()
+	if engine == nil {
+		return templateStr, nil
+	}
 	return engine.EvaluateString(templateStr, ctx)
 }

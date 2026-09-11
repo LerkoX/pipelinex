@@ -20,7 +20,7 @@ func TestExecuteCommandWithStreaming_UnicodeNormalization(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `echo 'café'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `echo 'café'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -48,7 +48,7 @@ func TestExecuteCommandWithStreaming_RightToLeft(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `echo 'مرحبا بالعالم'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `echo 'مرحبا بالعالم'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -76,7 +76,7 @@ func TestExecuteCommandWithStreaming_CombiningCharacters(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `echo 'é è ê ë ñ ü'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `echo 'é è ê ë ñ ü'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -104,7 +104,7 @@ func TestExecuteCommandWithStreaming_SurrogatePairs(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `echo '😀 😁 😂 🤣 😃 😄 😅'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `echo '😀 😁 😂 🤣 😃 😄 😅'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -132,7 +132,7 @@ func TestExecuteCommandWithStreaming_VariationSelectors(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `echo '❤️ 💔 💕 💖 💗 💘 💙'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `echo '❤️ 💔 💕 💖 💗 💘 💙'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -160,7 +160,7 @@ func TestExecuteCommandWithStreaming_ZeroWidthJoiner(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `echo '👨‍👩‍👧‍👦 👨‍👨‍👧‍👦 👩‍👩‍👧‍👦'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `echo '👨‍👩‍👧‍👦 👨‍👨‍👧‍👦 👩‍👩‍👧‍👦'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -188,7 +188,7 @@ func TestExecuteCommandWithStreaming_SkinToneModifiers(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `echo '👋🏻 👋🏼 👋🏽 👋🏾 👋🏿'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `echo '👋🏻 👋🏼 👋🏽 👋🏾 👋🏿'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -216,7 +216,7 @@ func TestExecuteCommandWithStreaming_Flags(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `echo '🇺🇸 🇬🇧 🇨🇳 🇯🇵 🇰🇷 🇩🇪 🇫🇷'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `echo '🇺🇸 🇬🇧 🇨🇳 🇯🇵 🇰🇷 🇩🇪 🇫🇷'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -244,7 +244,7 @@ func TestExecuteCommandWithStreaming_KeycapSequences(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `echo '1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `echo '1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -272,7 +272,7 @@ func TestExecuteCommandWithStreaming_TagCharacters(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `echo '🏴󠁧󠁢󠁥󠁮󠁧󠁿 🏴󠁧󠁢󠁳󠁣󠁴󠁿 🏴󠁧󠁢󠁷󠁬󠁳󠁿'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `echo '🏴󠁧󠁢󠁥󠁮󠁧󠁿 🏴󠁧󠁢󠁳󠁣󠁴󠁿 🏴󠁧󠁢󠁷󠁬󠁳󠁿'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -300,7 +300,7 @@ func TestExecuteCommandWithStreaming_InvisibleCharacters(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `echo 'test​test'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `echo 'test​test'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)

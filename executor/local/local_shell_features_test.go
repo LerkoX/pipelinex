@@ -25,7 +25,7 @@ func TestExecuteCommandWithStreaming_ShellScript(t *testing.T) {
 
 	script := "for i in 1 2 3; do\n    echo \"line $i\"\ndone"
 
-	err := exec.executeCommandWithStreaming(ctx, script, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, script, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -63,7 +63,7 @@ func TestExecuteCommandWithStreaming_Workflow(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "echo 'hello world' | wc -w", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "echo 'hello world' | wc -w", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -98,7 +98,7 @@ func TestExecuteCommandWithStreaming_Redirection(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "echo 'redirected' | cat", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "echo 'redirected' | cat", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -131,7 +131,7 @@ func TestExecuteCommandWithStreaming_SignalHandling(t *testing.T) {
 		cancel()
 	}()
 
-	err := exec.executeCommandWithStreaming(ctx, "sleep 10", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "sleep 10", "test", nil, callback, nil, nil)
 
 	if err == nil {
 		t.Fatal("Expected error due to context cancellation")
@@ -146,7 +146,7 @@ func TestExecuteCommandWithStreaming_ResourceCleanup(t *testing.T) {
 	callback := func(data []byte) {}
 
 	for i := 0; i < 50; i++ {
-		err := exec.executeCommandWithStreaming(ctx, "echo test", "test", callback, nil, nil)
+		err := exec.executeCommandWithStreaming(ctx, "echo test", "test", nil, callback, nil, nil)
 		if err != nil {
 			t.Errorf("Command %d failed: %v", i, err)
 		}
@@ -174,7 +174,7 @@ func TestExecuteCommandWithStreaming_LargeStderr(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "for i in $(seq 1 100); do echo error >&2; done; exit 0", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "for i in $(seq 1 100); do echo error >&2; done; exit 0", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error (exit 0), got: %v", err)
@@ -202,7 +202,7 @@ func TestExecuteCommandWithStreaming_MixedOutput(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "echo out1 && echo err1 >&2 && echo out2 && echo err2 >&2", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "echo out1 && echo err1 >&2 && echo out2 && echo err2 >&2", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)

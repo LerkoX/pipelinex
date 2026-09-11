@@ -441,7 +441,7 @@ func TestExecuteCommandWithStreaming_Timeout(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "sleep 10", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "sleep 10", "test", nil, callback, nil, nil)
 
 	if err == nil {
 		t.Fatal("Expected error for timeout")
@@ -465,7 +465,7 @@ func TestExecuteCommandWithStreaming_Success(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, "echo hello", "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, "echo hello", "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -504,7 +504,7 @@ func TestExecuteCommandWithStreaming_WithInput(t *testing.T) {
 	inputChan <- []byte("test input\n")
 	close(inputChan)
 
-	err := exec.executeCommandWithStreaming(ctx, "cat", "test", callback, inputChan, nil)
+	err := exec.executeCommandWithStreaming(ctx, "cat", "test", nil, callback, inputChan, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)

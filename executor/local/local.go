@@ -127,7 +127,7 @@ func (l *LocalExecutor) Transfer(ctx context.Context, resultChan chan<- any, com
 			continue
 		}
 		// 执行命令（携带步骤名称）
-		l.executeCommandStreaming(execCtx, cmdWrapper.Command, cmdWrapper.StepName, resultChan, inputChan)
+		l.executeCommandStreaming(execCtx, cmdWrapper.Command, cmdWrapper.StepName, cmdWrapper.Env, resultChan, inputChan)
 	}
 
 	// commandChan 关闭后，等待监听 goroutine 退出并关闭 resultChan
@@ -173,7 +173,7 @@ func (l *LocalExecutor) killCurrentProcess() {
 }
 
 // executeCommandStreaming 执行命令并实时流式输出
-func (l *LocalExecutor) executeCommandStreaming(ctx context.Context, command string, stepName string, resultChan chan<- any, inputChan <-chan []byte) {
+func (l *LocalExecutor) executeCommandStreaming(ctx context.Context, command string, stepName string, env map[string]string, resultChan chan<- any, inputChan <-chan []byte) {
 	startTime := time.Now()
 
 	// 创建带超时的上下文
@@ -213,7 +213,7 @@ func (l *LocalExecutor) executeCommandStreaming(ctx context.Context, command str
 	}()
 
 	// 使用带超时的上下文执行命令
-	err := l.executeCommandWithStreaming(execCtx, command, stepName, func(data []byte) {
+	err := l.executeCommandWithStreaming(execCtx, command, stepName, env, func(data []byte) {
 		safeSend(resultChan, data)
 	}, inputChan, onInputRequest)
 
@@ -238,15 +238,20 @@ func (l *LocalExecutor) executeCommandStreaming(ctx context.Context, command str
 }
 
 // executeCommandWithStreaming 执行命令并实时输出
-func (l *LocalExecutor) executeCommandWithStreaming(ctx context.Context, command string, stepName string, outputCallback func([]byte), inputChan <-chan []byte, onInputRequest func(*executor.InputRequest)) error {
+func (l *LocalExecutor) executeCommandWithStreaming(ctx context.Context, command string, stepName string, env map[string]string, outputCallback func([]byte), inputChan <-chan []byte, onInputRequest func(*executor.InputRequest)) error {
 	// 先复制需要的环境变量和配置，避免持有锁期间调用外部函数
 	l.configMu.RLock()
 	workdir := l.workdir
-	envCopy := make(map[string]string, len(l.env))
+	envCopy := make(map[string]string, len(l.env)+len(env))
 	for k, v := range l.env {
 		envCopy[k] = v
 	}
 	l.configMu.RUnlock()
+	// 命令级环境变量（dag 渲染终值）覆盖执行器级同名变量，
+	// 以真实进程环境变量注入，不经 shell 解析
+	for k, v := range env {
+		envCopy[k] = v
+	}
 
 	// 创建命令
 	cmd := l.createCommand(ctx, command)

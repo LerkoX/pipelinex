@@ -21,7 +21,7 @@ func TestExecuteCommandWithStreaming_ControlCharacters(t *testing.T) {
 	}
 
 	err := exec.executeCommandWithStreaming(ctx, `printf 'belltab	newline
-'`, "test", callback, nil, nil)
+'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -49,7 +49,7 @@ func TestExecuteCommandWithStreaming_EscapeSequencesInOutput(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `echo -e '[31mred[0m'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `echo -e '[31mred[0m'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -77,7 +77,7 @@ func TestExecuteCommandWithStreaming_BinaryData(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `printf '\\x01\\x02\\x03\\x04\\x05\\x06\\x07\\x08\\x09'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `printf '\\x01\\x02\\x03\\x04\\x05\\x06\\x07\\x08\\x09'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -105,7 +105,7 @@ func TestExecuteCommandWithStreaming_RandomBytes(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `printf '￿￾�￼￻￺'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `printf '￿￾�￼￻￺'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -133,7 +133,7 @@ func TestExecuteCommandWithStreaming_InvalidUTF8(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `printf '￿￾ﾀﾁﾂﾃ'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `printf '￿￾ﾀﾁﾂﾃ'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -161,7 +161,7 @@ func TestExecuteCommandWithStreaming_OverlongUTF8(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `printf '삀ﾀ'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `printf '삀ﾀ'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -189,7 +189,7 @@ func TestExecuteCommandWithStreaming_UTF16(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `printf '￿￾ｈ＀･＀ｬ＀ｬ＀ｯ＀'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `printf '￿￾ｈ＀･＀ｬ＀ｬ＀ｯ＀'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
@@ -217,7 +217,7 @@ func TestExecuteCommandWithStreaming_UTF32(t *testing.T) {
 		outputs = append(outputs, string(data))
 	}
 
-	err := exec.executeCommandWithStreaming(ctx, `printf '￿￾＀＀ｈ＀＀＀'`, "test", callback, nil, nil)
+	err := exec.executeCommandWithStreaming(ctx, `printf '￿￾＀＀ｈ＀＀＀'`, "test", nil, callback, nil, nil)
 
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
