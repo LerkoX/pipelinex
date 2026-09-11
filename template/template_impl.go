@@ -38,6 +38,9 @@ var _ TemplateEngine = (*Pongo2TemplateEngine)(nil)
 
 // 注册自定义过滤器
 func init() {
+	// flowx 是流水线引擎而非 HTML 模板场景：关闭全局 autoescape，
+	// 否则参数值中的引号会被转义为 &#39;/&quot;（且在多次渲染间累积成 &amp;amp;）
+	pongo2.SetAutoescape(false)
 	pongo2.RegisterFilter("toJson", filterToJSON)
 	pongo2.RegisterFilter("toYaml", filterToYaml)
 	pongo2.RegisterFilter("toBase64", filterToBase64)
