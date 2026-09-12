@@ -44,8 +44,12 @@ func (e *CodecBlockExtractor) Extract(output string) (map[string]core.FieldItem,
 		fmt.Printf("Warning: Output truncated to %d bytes (showing last %d bytes) due to size limit\n", len(output), e.maxSize)
 	}
 
-	// 查找 YAML 代码块
-	yamlPattern := regexp.MustCompile("(?s)```flowx-yaml\\s*\\n?(.*?)\\n?```")
+	// 查找 YAML 代码块。
+	// 闭合围栏必须独占一行（前导为换行）：节点输出的值常是 json.dumps 单行字符串，
+	// 内部可能含字面 Markdown 代码围栏 ```（如 vibe 节点的 summary/transcript），
+	// 非贪婪匹配到「任意位置的 ```」会在值中间提前截断，导致整块 YAML 解析失败、
+	// 节点输出全部丢失（exec 158/159 事故）。
+	yamlPattern := regexp.MustCompile("(?s)```flowx-yaml[^\\n]*\\n(.*?)\\n```[^\\n]*(\\n|$)")
 	yamlMatches := yamlPattern.FindAllStringSubmatch(output, -1)
 	for _, match := range yamlMatches {
 		if len(match) >= 2 {

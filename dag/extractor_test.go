@@ -1,6 +1,7 @@
 package dag
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/LerkoX/flowx/core"
@@ -206,5 +207,52 @@ Result: 123-ABC
 	// Should use the first group
 	if core.GetValue(result["complex"].Value) != "Result" {
 		t.Errorf("Expected first group 'Result', got %v", result["complex"].Value)
+	}
+}
+
+func TestCodecBlockExtractor_ValueContainingCodeFence(t *testing.T) {
+	// 回归：值是 json.dumps 单行字符串、内部含字面 Markdown 代码围栏 ``` 时
+	// （如 pi-vibe-coding 节点的 summary/transcript），闭合围栏必须按「独占一行」
+	// 识别，不得在值中间提前截断导致整块 YAML 解析失败、节点输出全部丢失
+	// （exec 158/159：含 ``` 的 summary 使 vibe 节点输出全部未入 metadata）。
+	extractor := NewCodecBlockExtractor(1024 * 1024)
+
+	output := "some log line\n" +
+		"```flowx-yaml\n" +
+		"status: \"success\"\n" +
+		"summary: \"验收完成 \\n\\n```bash\\ngo build ./...\\n```\\n 以上全部通过\"\n" +
+		"turns: \"29\"\n" +
+		"```\n" +
+		"trailing log\n"
+
+	result, err := extractor.Extract(output)
+	if err != nil {
+		t.Fatalf("Failed to extract: %v", err)
+	}
+	if len(result) != 3 {
+		t.Fatalf("Expected 3 extracted values, got %d (%v)", len(result), result)
+	}
+	if core.GetValue(result["status"].Value) != "success" {
+		t.Errorf("Expected status=success, got %v", result["status"].Value)
+	}
+	summary, _ := core.GetValue(result["summary"].Value).(string)
+	if !strings.Contains(summary, "go build ./...") {
+		t.Errorf("summary 被代码围栏截断: %q", summary)
+	}
+	if core.GetValue(result["turns"].Value) != "29" {
+		t.Errorf("Expected turns=29, got %v", result["turns"].Value)
+	}
+}
+
+func TestCodecBlockExtractor_ClosingFenceAtEOF(t *testing.T) {
+	// 闭合围栏后无换行（输出恰好以 ``` 结尾）也应识别
+	extractor := NewCodecBlockExtractor(1024 * 1024)
+	output := "```flowx-yaml\nstatus: \"ok\"\n```"
+	result, err := extractor.Extract(output)
+	if err != nil {
+		t.Fatalf("Failed to extract: %v", err)
+	}
+	if core.GetValue(result["status"].Value) != "ok" {
+		t.Errorf("Expected status=ok, got %v", result)
 	}
 }
